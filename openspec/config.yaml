@@ -1,0 +1,80 @@
+schema: spec-driven
+
+context: |
+  Project: personal-whatsapp-bot.
+  Purpose: A private, low-volume WhatsApp bot to send and receive text messages
+  with the owner and, potentially later, one explicitly approved family member.
+
+  Runtime and platform:
+  - Bun as the intended runtime and package manager; JavaScript ESM (not TypeScript)
+    for application code unless a later change explicitly revises this decision.
+  - Baileys as the proposed WhatsApp linked-device library; use its maintained,
+    documented API. Verify compatibility with Bun and the installed Baileys release
+    in a separate exploration before implementation. Do not assume Node.js-specific
+    dependencies work unchanged under Bun.
+  - Target deployment: a small Linux VPS (for example AWS EC2 or Google Compute
+    Engine). Keep memory, operational complexity, and recurring costs low.
+  - Prefer one app process and minimal dependencies. Do not introduce a web
+    framework, database, Redis, message broker, or microservices without a
+    demonstrated requirement in an approved change.
+
+  WhatsApp account model and boundaries:
+  - Regular personal WhatsApp account; no WhatsApp Business conversion or official
+    Cloud API is assumed for this prototype.
+  - Initial scope is one owner. A second, explicitly consenting family member may
+    be authorized later; no bulk messaging, scraping, unsolicited messaging,
+    group automation, or third-party multi-tenant API.
+  - Investigate one-number/self-chat feasibility versus a dedicated regular bot
+    number before assuming the owner can converse with an independent bot identity.
+  - Baileys is unofficial, carries account restriction risk, and offers no
+    guaranteed or officially approved anti-ban configuration. Do not implement
+    evasion, client fingerprint disguise, proxy rotation, or simulated human behavior.
+
+  Engineering constraints:
+  - Securely persist linked-device authentication across restarts. Keep auth keys,
+    secrets, tokens, phone numbers, and message contents out of source control and
+    routine logs. Restrict filesystem and network access.
+  - Permit inbound processing and outbound recipients only from an explicit
+    allowlist; refuse unknown recipients and unexpected senders by default.
+  - Prevent accidental floods with configurable application rate limits, burst
+    coalescing, deduplication, and bounded retries. Any example limit is a local
+    policy, not a WhatsApp-approved safety threshold.
+  - Maintain a single active session; handle disconnects with bounded backoff.
+    Stop and require manual review on logout, account restriction, or unrecoverable
+    authentication errors; do not endlessly reconnect or re-register.
+  - Keep messages and credentials private. Prefer local/offline tests and mocked
+    WhatsApp interactions; do not send real messages in automated test runs.
+  - Preserve a path for an independent fallback notification channel if later
+    required, but do not build one without an approved change.
+
+  Project and OpenSpec conventions:
+  - The project root is the repository containing this openspec/ directory.
+    This configuration belongs at openspec/config.yaml; the initial exploration
+    prompt belongs at docs/feature-exploration-prompt.md.
+  - Work one atomic change at a time: /opsx-explore -> /opsx-propose -> /opsx-apply.
+  - Explore the existing repository and current documentation before proposing.
+    Exploration is non-implementing unless explicitly authorized.
+  - Stay within the owner's immediate request. Avoid speculative features,
+    unrelated edits, and overengineering. Prefer observable behavior and explicit
+    out-of-scope statements over premature technical design.
+
+rules:
+  proposal:
+    - Propose exactly one independently reviewable change, with its goal, scope, non-goals, and risk.
+    - Base the change on repository findings, not an imagined architecture or backlog-wide implementation.
+  specs:
+    - Describe externally observable behavior and concrete scenarios, including unauthorized users and failure conditions where applicable.
+    - Do not present unofficial WhatsApp use as compliant, guaranteed, or restriction-proof.
+  design:
+    - Inspect existing patterns first; justify any new component, storage, or dependency against the minimal single-user scope.
+    - Address Bun/Baileys compatibility, authentication security, and recovery only when relevant to that change.
+  tasks:
+    - Keep steps small, testable, and restricted to the approved atomic change.
+    - Prefer Bun-based offline tests with mocks; require explicit opt-in for real-account integration tests.
+
+operations:
+  apply:
+    guidance:
+      - Implement only approved tasks; avoid unrelated refactors and new infrastructure.
+      - Run applicable tests and report any unverified real-WhatsApp behavior explicitly.
+      - Never log or commit live authentication state, message contents, or secrets.
