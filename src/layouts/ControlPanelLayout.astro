@@ -1,0 +1,19 @@
+---
+import "@/src/styles/global.css";
+
+const { title = "WhatsApp session control" } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#102b3a" />
+    <meta name="description" content="Local, session-only WhatsApp controls." />
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

@@ -4,9 +4,13 @@ node_modules
 # local WhatsApp session credentials
 /auth_info/
 
+# locally retained incoming images
+/received-images/
+
 # output
 out
 dist
+/.astro/
 *.tgz
 
 # code coverage

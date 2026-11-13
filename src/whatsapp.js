@@ -1,43 +1,97 @@
 import makeWASocket, {
   DisconnectReason,
+  downloadMediaMessage,
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
-import qrcode from "qrcode-terminal";
 import pino from "pino";
-import { processUpsert } from "./messages.js";
+import { processUpsert } from "@/src/messages.js";
+import { normalizeJid } from "@/src/message-feed.js";
 
-export async function startWhatsApp() {
-  const { state, saveCreds } =
-    await useMultiFileAuthState("./auth_info");
+const SOCKET_CLOSE_TIMEOUT_MS = 5000;
 
-  const sock = makeWASocket({
+function accountJids(user) {
+  return [user?.id, user?.lid].filter((jid) => typeof jid === "string");
+}
+
+function selfChatJid(user) {
+  const jid = normalizeJid(user?.id);
+  if (!jid || !jid.includes("@")) {
+    throw new Error("The linked account identifier is not available");
+  }
+  return jid;
+}
+
+export async function createWhatsAppSession({ onPairing, onOpen, onClose, onUpsert }) {
+  const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
+  const socket = makeWASocket({
     auth: state,
     logger: pino({ level: "silent" }),
     markOnlineOnConnect: false,
   });
 
-  sock.ev.on("creds.update", saveCreds);
+  let closed = false;
+  let resolveClosed;
+  const closedPromise = new Promise((resolve) => {
+    resolveClosed = resolve;
+  });
 
-  sock.ev.on("connection.update", ({ connection, qr, lastDisconnect }) => {
-    if (qr) {
-      qrcode.generate(qr, { small: true });
-    }
+  socket.ev.on("creds.update", () => {
+    void saveCreds().catch(() => {});
+  });
 
-    if (connection === "open") {
-      console.log("WhatsApp connected!");
-    }
-
-    if (connection === "close") {
+  socket.ev.on("connection.update", ({ connection, qr, lastDisconnect }) => {
+    if (qr) onPairing?.(qr);
+    if (connection === "open") onOpen?.();
+    if (connection === "close" && !closed) {
+      closed = true;
       const status = lastDisconnect?.error?.output?.statusCode;
-      if (status !== DisconnectReason.loggedOut) {
-        console.log("Connection lost");
-      } else {
-        console.log("Session logged out");
-      }
+      onClose?.({ loggedOut: status === DisconnectReason.loggedOut });
+      resolveClosed();
     }
   });
 
-  sock.ev.on("messages.upsert", (upsert) =>
-    processUpsert(upsert, (jid, content) => sock.sendMessage(jid, content)),
-  );
+  socket.ev.on("messages.upsert", (upsert) => {
+    void processUpsert(upsert, (jid, content) => socket.sendMessage(jid, content)).catch(() => {});
+    try {
+      onUpsert?.(upsert, accountJids(socket.user));
+    } catch {
+      // A passive panel failure must not interfere with command processing.
+    }
+  });
+
+  async function waitForClose() {
+    if (closed) return;
+    let timeout;
+    try {
+      await Promise.race([
+        closedPromise,
+        new Promise((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("Socket shutdown timed out")),
+            SOCKET_CLOSE_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  return {
+    async logout() {
+      await socket.logout();
+      await waitForClose();
+    },
+    async end() {
+      if (!closed) socket.end();
+      await waitForClose();
+    },
+    async sendSelf(text) {
+      await socket.sendMessage(selfChatJid(socket.user), { text });
+    },
+  };
+}
+
+export function downloadImageStream(message) {
+  return downloadMediaMessage(message, "stream", {});
 }

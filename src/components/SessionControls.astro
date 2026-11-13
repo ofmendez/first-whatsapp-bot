@@ -1,0 +1,111 @@
+<section
+  class="session-column min-w-0 rounded-xl border border-line bg-panel p-6.25 max-wide:p-5.5"
+  aria-labelledby="session-heading"
+>
+  <div class="section-heading flex items-start justify-between gap-4.5 border-b border-[#d8e0e2] pb-4.5">
+    <div>
+      <h2 id="session-heading">Session</h2>
+      <p>One linked account at a time</p>
+    </div>
+  </div>
+
+  <div class="session-actions py-5 pb-4">
+    <button
+      class="button button-primary inline-flex min-h-11.5 w-full cursor-pointer items-center justify-center gap-2.5 rounded-[7px] border border-transparent bg-brand px-4 py-2.75 text-center font-[680] text-white transition-[background-color,border-color,transform] duration-140 hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-[.52] motion-reduce:transition-none"
+      id="start-button"
+      type="button"
+    >
+      Start session
+    </button>
+    <button
+      class="button button-secondary inline-flex min-h-11.5 w-full cursor-pointer items-center justify-center gap-2.5 rounded-[7px] border border-[#a8bac1] bg-[#f3f7f7] px-4 py-2.75 text-center font-[680] text-[#163746] transition-[background-color,border-color,transform] duration-140 disabled:cursor-not-allowed disabled:opacity-[.52] motion-reduce:transition-none"
+      id="cancel-button"
+      type="button"
+      hidden
+    >
+      Cancel pairing
+    </button>
+    <button
+      class="button button-danger inline-flex min-h-11.5 w-full cursor-pointer items-center justify-center gap-2.5 rounded-[7px] border border-[#d7a6a0] bg-[#fff7f5] px-4 py-2.75 text-center font-[680] text-[#7c2a22] transition-[background-color,border-color,transform] duration-140 disabled:cursor-not-allowed disabled:opacity-[.52] motion-reduce:transition-none"
+      id="logout-button"
+      type="button"
+      hidden
+    >
+      Log out &amp; switch account
+    </button>
+    <p class="action-feedback" id="action-feedback" role="status" aria-live="polite"></p>
+  </div>
+
+  <div
+    class="pairing-panel rounded-[9px] border border-[#d2dbdd] bg-[#f3f6f6] p-4.25 text-center"
+    id="pairing-panel"
+    hidden
+  >
+    <div class="pairing-copy">
+      <h3>Scan to link</h3>
+      <p>On your phone, open Linked devices and scan this code.</p>
+    </div>
+    <div class="qr-frame grid w-full place-items-center rounded-md border border-[#d5dcdd] bg-white p-2.75">
+      <canvas
+        id="pairing-qr"
+        width="240"
+        height="240"
+        role="img"
+        aria-label="Transient WhatsApp pairing QR code"
+        hidden
+      ></canvas>
+    </div>
+    <p class="qr-expiry">This code is visible only while pairing.</p>
+  </div>
+
+  <div
+    class="review-panel rounded-lg border border-[#d7a6a0] bg-[#fff7f5] p-3.75 text-[#63231e]"
+    id="review-panel"
+    hidden
+    role="alert"
+  >
+    <h3>Operator review required</h3>
+    <p id="review-message">
+      The session could not be safely closed. Review the process before trying again.
+    </p>
+    <p class="review-note">A new socket is blocked until this state is resolved.</p>
+  </div>
+
+  <aside
+    class="session-boundary mt-px rounded-[7px] border border-[#d6c18b] bg-[#fff8e6] px-3.25 py-3 text-[#493b21]"
+    aria-label="Local retention and account-risk limits"
+  >
+    <strong>LOCAL · 200 EVENTS MAX</strong>
+    <p>
+      At most 200 text and image events stay in memory; they clear on logout or exit. Saved image
+      files remain on disk until manually removed.
+    </p>
+  </aside>
+
+  <div class="session-facts mt-5 border-t border-[#d8e0e2]" aria-label="Session safeguards">
+    <div class="fact-row grid grid-cols-[25px_1fr] gap-2.75 pt-3.5">
+      <span
+        class="fact-mark grid size-5.75 place-items-center rounded-full border border-[#a8bac1]"
+        aria-hidden="true"
+      >
+        1
+      </span>
+      <p>
+        <strong>Single socket</strong>
+        <span>Repeated start actions do not open another connection.</span>
+      </p>
+    </div>
+    <div class="fact-row grid grid-cols-[25px_1fr] gap-2.75 pt-3.5">
+      <span
+        class="fact-mark grid size-5.75 place-items-center rounded-full border border-[#a8bac1]"
+        aria-hidden="true"
+      >
+        0
+      </span>
+      <p>
+        <strong>No auto-reconnect</strong>
+        <span>Connection loss is reported for you to review.</span>
+      </p>
+    </div>
+  </div>
+</section>

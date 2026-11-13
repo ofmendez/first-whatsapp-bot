@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-12T15:48:48-05:00",
+  "title": "Design System: WhatsApp Session Control",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Control Teal", "canonical": "#14566c" },
+      "primary-hover": { "role": "primary", "displayName": "Control Teal Hover", "canonical": "#0e4457" },
+      "white": { "role": "neutral", "displayName": "Control White", "canonical": "#fff" },
+      "page-canvas": { "role": "neutral", "displayName": "Cool Canvas", "canonical": "#e9eef0" },
+      "ink": { "role": "neutral", "displayName": "Blue-Gray Ink", "canonical": "#102b3a" },
+      "panel": { "role": "neutral", "displayName": "Panel White", "canonical": "#fbfcfb" },
+      "status-panel": { "role": "neutral", "displayName": "Readout White", "canonical": "#f8faf9" },
+      "form-panel": { "role": "neutral", "displayName": "Composer Gray", "canonical": "#f4f7f7" },
+      "secondary-control": { "role": "neutral", "displayName": "Secondary Control Fill", "canonical": "#f3f7f7" },
+      "masthead-text": { "role": "neutral", "displayName": "Masthead Text", "canonical": "#f3f7f8" },
+      "text-muted": { "role": "neutral", "displayName": "Quiet Copy", "canonical": "#526771" },
+      "border": { "role": "neutral", "displayName": "Structural Border", "canonical": "#cad5d8" },
+      "divider": { "role": "neutral", "displayName": "Divider", "canonical": "#d8e0e2" },
+      "secondary-text": { "role": "neutral", "displayName": "Secondary Control Text", "canonical": "#163746" },
+      "secondary-border": { "role": "neutral", "displayName": "Secondary Control Border", "canonical": "#a8bac1" },
+      "disabled-field": { "role": "neutral", "displayName": "Disabled Field", "canonical": "#e9eeee" },
+      "field-border": { "role": "neutral", "displayName": "Field Border", "canonical": "#aebdc1" },
+      "danger-bg": { "role": "tertiary", "displayName": "Danger Surface", "canonical": "#fff7f5" },
+      "danger-text": { "role": "tertiary", "displayName": "Danger Text", "canonical": "#7c2a22" },
+      "danger-border": { "role": "tertiary", "displayName": "Danger Border", "canonical": "#d7a6a0" },
+      "state-idle": { "role": "neutral", "displayName": "Idle State", "canonical": "#647781" },
+      "state-connected": { "role": "secondary", "displayName": "Connected Green", "canonical": "#167143" },
+      "state-pending": { "role": "tertiary", "displayName": "Pending Amber", "canonical": "#a74d00" },
+      "state-review": { "role": "tertiary", "displayName": "Review Red", "canonical": "#a02f26" },
+      "local-indicator": { "role": "secondary", "displayName": "Local Indicator Green", "canonical": "#8fe0b0" },
+      "status-halo-idle": { "role": "neutral", "displayName": "Idle Halo", "canonical": "#e2e8e9" },
+      "status-halo-connected": { "role": "secondary", "displayName": "Connected Halo", "canonical": "#d9efe2" },
+      "status-halo-pending": { "role": "tertiary", "displayName": "Pending Halo", "canonical": "#f9e5d2" },
+      "status-halo-review": { "role": "tertiary", "displayName": "Review Halo", "canonical": "#f5ddda" },
+      "alert-bg": { "role": "tertiary", "displayName": "Caution Paper", "canonical": "#fff8e6" },
+      "alert-border": { "role": "tertiary", "displayName": "Caution Border", "canonical": "#d6c18b" },
+      "alert-text": { "role": "tertiary", "displayName": "Caution Text", "canonical": "#493b21" },
+      "alert-heading": { "role": "tertiary", "displayName": "Caution Heading", "canonical": "#3f3219" },
+      "alert-copy": { "role": "tertiary", "displayName": "Caution Copy", "canonical": "#4d4128" },
+      "alert-icon": { "role": "tertiary", "displayName": "Caution Symbol", "canonical": "#7d4500" },
+      "alert-icon-border": { "role": "tertiary", "displayName": "Caution Symbol Border", "canonical": "#9b5a0b" },
+      "event-new-bg": { "role": "tertiary", "displayName": "Newest Event Tint", "canonical": "#fff5d6" },
+      "event-new-label-bg": { "role": "tertiary", "displayName": "New Badge Fill", "canonical": "#f5df9e" },
+      "event-new-label-text": { "role": "tertiary", "displayName": "New Badge Text", "canonical": "#714000" },
+      "connection-update-text": { "role": "tertiary", "displayName": "Updated Marker Text", "canonical": "#754000" },
+      "brand-mark": { "role": "secondary", "displayName": "Wordmark Glyph Accent", "canonical": "#ffcf58" },
+      "selection": { "role": "tertiary", "displayName": "Text Selection", "canonical": "#ffe08a" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Page Display", "purpose": "The page title; system sans-serif with tight tracking." },
+      "title": { "displayName": "Section Title", "purpose": "Session and activity section headings." },
+      "body": { "displayName": "Interface Body", "purpose": "Panel copy and message text; the base system sans-serif style." },
+      "label": { "displayName": "Compact Label", "purpose": "Uppercase date, status, and event metadata. Time and count numerals use tabular figures." },
+      "code": { "displayName": "Inline Code", "purpose": "Inline command text in the safety statement." }
+    },
+    "shadows": [
+      { "name": "local-indicator-halo", "value": "0 0 0 3px rgb(143 224 176 / 14%)", "purpose": "Soft ring around the local-only masthead indicator." },
+      { "name": "status-idle-halo", "value": "0 0 0 4px #e2e8e9", "purpose": "Idle connection-light ring." },
+      { "name": "status-connected-halo", "value": "0 0 0 4px #d9efe2", "purpose": "Connected state ring." },
+      { "name": "status-pending-halo", "value": "0 0 0 4px #f9e5d2", "purpose": "Starting and pairing state ring." },
+      { "name": "status-review-halo", "value": "0 0 0 4px #f5ddda", "purpose": "Disconnected and review-required state ring." }
+    ],
+    "motion": [
+      { "name": "button-transition", "value": "140ms ease", "purpose": "Button background, border, and hover-lift transitions." },
+      { "name": "event-arrival", "value": "240ms cubic-bezier(.16, 1, .3, 1)", "purpose": "New activity row arrival; removed under prefers-reduced-motion: reduce." }
+    ],
+    "breakpoints": [
+      { "name": "stack-columns", "value": "max-width: 850px" },
+      { "name": "compact-controls", "value": "max-width: 560px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Full-width session-start action; also the base appearance for the send action.",
+      "html": "<button class=\"ds-button\">Start session</button>",
+      "css": ".ds-button{width:100%;min-height:46px;padding:11px 16px;display:inline-flex;align-items:center;justify-content:center;gap:10px;border:1px solid transparent;border-radius:7px;color:#fff;background:#14566c;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:15px;line-height:1.5;font-weight:680;text-align:center;cursor:pointer;transition:background-color 140ms ease,border-color 140ms ease,transform 140ms ease}.ds-button:hover:not(:disabled){background:#0e4457;transform:translateY(-1px)}.ds-button:disabled{cursor:not-allowed;opacity:.52}.ds-button:focus-visible{outline:3px solid #a74d00;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-button{transition:none}}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Full-width bordered pairing-cancel control.",
+      "html": "<button class=\"ds-button-secondary\">Cancel pairing</button>",
+      "css": ".ds-button-secondary{width:100%;min-height:46px;padding:11px 16px;display:inline-flex;align-items:center;justify-content:center;gap:10px;border:1px solid #a8bac1;border-radius:7px;color:#163746;background:#f3f7f7;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:15px;line-height:1.5;font-weight:680;text-align:center;cursor:pointer;transition:background-color 140ms ease,border-color 140ms ease,transform 140ms ease}.ds-button-secondary:hover:not(:disabled){transform:translateY(-1px)}.ds-button-secondary:disabled{cursor:not-allowed;opacity:.52}.ds-button-secondary:focus-visible{outline:3px solid #a74d00;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-button-secondary{transition:none}}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Full-width pale red logout and account-switch action.",
+      "html": "<button class=\"ds-button-danger\">Log out &amp; switch account</button>",
+      "css": ".ds-button-danger{width:100%;min-height:46px;padding:11px 16px;display:inline-flex;align-items:center;justify-content:center;gap:10px;border:1px solid #d7a6a0;border-radius:7px;color:#7c2a22;background:#fff7f5;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:15px;line-height:1.5;font-weight:680;text-align:center;cursor:pointer;transition:background-color 140ms ease,border-color 140ms ease,transform 140ms ease}.ds-button-danger:hover:not(:disabled){transform:translateY(-1px)}.ds-button-danger:disabled{cursor:not-allowed;opacity:.52}.ds-button-danger:focus-visible{outline:3px solid #a74d00;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-button-danger{transition:none}}"
+    },
+    {
+      "name": "Send Button",
+      "kind": "button",
+      "refersTo": "button-send",
+      "description": "Teal self-chat action; min-width 150px on desktop and full width at 560px and below.",
+      "html": "<button class=\"ds-button-send\"><span>Send to self</span><span aria-hidden=\"true\">→</span></button>",
+      "css": ".ds-button-send{min-width:150px;min-height:46px;padding:11px 16px;display:inline-flex;align-items:center;justify-content:center;gap:10px;border:1px solid transparent;border-radius:7px;color:#fff;background:#14566c;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:15px;line-height:1.5;font-weight:680;text-align:center;cursor:pointer;transition:background-color 140ms ease,border-color 140ms ease,transform 140ms ease}.ds-button-send:hover:not(:disabled){background:#0e4457;transform:translateY(-1px)}.ds-button-send:disabled{cursor:not-allowed;opacity:.52}.ds-button-send:focus-visible{outline:3px solid #a74d00;outline-offset:3px}@media(max-width:560px){.ds-button-send{width:100%}}@media(prefers-reduced-motion:reduce){.ds-button-send{transition:none}}"
+    },
+    {
+      "name": "Message Textarea",
+      "kind": "input",
+      "refersTo": "input-textarea",
+      "description": "Vertically resizable message field with connected-session disabled state.",
+      "html": "<div class=\"ds-send-controls\"><textarea class=\"ds-field\" rows=\"2\" placeholder=\"Write a message…\" disabled></textarea></div>",
+      "css": ".ds-send-controls{display:flex;align-items:stretch;gap:10px}.ds-field{min-width:0;flex:1;resize:vertical;padding:11px 12px;border:1px solid #aebdc1;border-radius:6px;color:#102b3a;background:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:15px;line-height:1.4}.ds-field::placeholder{color:#687d85;opacity:1}.ds-field:disabled{background:#e9eeee}.ds-field:focus-visible{outline:3px solid #a74d00;outline-offset:3px}@media(max-width:560px){.ds-send-controls{flex-direction:column}}"
+    },
+    {
+      "name": "Session Panel",
+      "kind": "card",
+      "refersTo": "card-session",
+      "description": "Flat bordered work surface for session controls and safeguards.",
+      "html": "<section class=\"ds-session-panel\"><h2>Session</h2><p>One linked account at a time</p></section>",
+      "css": ".ds-session-panel{min-width:0;padding:25px;border:1px solid #cad5d8;border-radius:12px;color:#102b3a;background:#fbfcfb;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}.ds-session-panel h2{margin:0 0 3px;font-size:21px;line-height:1.2;letter-spacing:-.025em}.ds-session-panel p{margin:0;color:#516670;font-size:13px}@media(max-width:850px){.ds-session-panel{padding:22px}}"
+    },
+    {
+      "name": "Connection Readout",
+      "kind": "custom",
+      "refersTo": "card-status",
+      "description": "Textual session status with a state-colored light, halo, and persistent UPDATED marker.",
+      "html": "<div class=\"ds-readout\"><span class=\"ds-light\" data-state=\"connected\"></span><div><span class=\"ds-label\">SESSION STATUS</span><strong>Connected</strong></div><span class=\"ds-updated\">UPDATED · CONNECTED</span></div>",
+      "css": ".ds-readout{min-width:228px;min-height:84px;padding:16px 18px;display:flex;align-items:center;gap:13px;border:1px solid #cad5d8;border-radius:10px;color:#102b3a;background:#f8faf9;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;position:relative}.ds-light{width:12px;height:12px;flex:0 0 auto;border-radius:50%;background:#647781;box-shadow:0 0 0 4px #e2e8e9}.ds-light[data-state=connected]{background:#167143;box-shadow:0 0 0 4px #d9efe2}.ds-light[data-state=pairing],.ds-light[data-state=starting]{background:#a74d00;box-shadow:0 0 0 4px #f9e5d2}.ds-light[data-state=review-required],.ds-light[data-state=disconnected]{background:#a02f26;box-shadow:0 0 0 4px #f5ddda}.ds-label{display:block;margin-bottom:2px;color:#526872;font-size:10px;font-weight:750;letter-spacing:.1em}.ds-readout strong{display:block;font-size:20px;line-height:1.2}.ds-updated{position:absolute;right:14px;top:12px;color:#754000;font-size:9px;font-weight:800;letter-spacing:.08em}@media(max-width:850px){.ds-readout{width:100%;min-height:70px}}"
+    },
+    {
+      "name": "Newest Activity Row",
+      "kind": "custom",
+      "refersTo": "activity-new-row",
+      "description": "Tabular event time and direction metadata; only the newest row stays highlighted and marked NEW.",
+      "html": "<article class=\"ds-row ds-row-new\"><div class=\"ds-meta\"><strong>Direct chat</strong><span>RECEIVED</span><span class=\"ds-new\">NEW</span><time>03:43 PM</time></div><p class=\"ds-message\">Message text</p></article>",
+      "css": ".ds-row{padding:15px 24px;border-bottom:1px solid #e0e6e7;animation:ds-arrive 240ms cubic-bezier(.16,1,.3,1) both;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}.ds-row-new{background:#fff5d6}.ds-meta{min-width:0;display:flex;align-items:baseline;gap:12px}.ds-meta strong{overflow:hidden;color:#1b3c4a;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.ds-meta>span{color:#596e77;font-size:9px;font-weight:800;letter-spacing:.08em}.ds-meta .ds-new{padding:2px 5px;border-radius:3px;color:#714000;background:#f5df9e;font-size:8px}.ds-meta time{margin-left:auto;color:#50656f;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}.ds-message{margin:7px 0 0;color:#183442;overflow-wrap:anywhere;white-space:pre-wrap}@keyframes ds-arrive{from{opacity:.6;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}@media(max-width:560px){.ds-row{padding:14px 17px}}@media(prefers-reduced-motion:reduce){.ds-row{animation:none}}"
+    },
+    {
+      "name": "New Event Badge",
+      "kind": "chip",
+      "refersTo": "chip-new",
+      "description": "Compact NEW marker shown on the latest event row.",
+      "html": "<span class=\"ds-new\">NEW</span>",
+      "css": ".ds-new{padding:2px 5px;border-radius:3px;color:#714000;background:#f5df9e;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:8px;font-weight:800;letter-spacing:.08em}"
+    },
+    {
+      "name": "Safety Callout",
+      "kind": "custom",
+      "refersTo": "callout-safety",
+      "description": "Pale amber bordered caution strip with a circular exclamation marker.",
+      "html": "<aside class=\"ds-safety\"><span class=\"ds-symbol\" aria-hidden=\"true\">!</span><div><h2>Local safeguards, not a restriction guarantee</h2><p>Baileys is an unofficial integration.</p></div></aside>",
+      "css": ".ds-safety{padding:17px 20px;display:grid;grid-template-columns:27px 1fr;gap:13px;border:1px solid #d6c18b;border-radius:9px;background:#fff8e6;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}.ds-symbol{width:24px;height:24px;display:grid;place-items:center;border:1px solid #9b5a0b;border-radius:50%;color:#7d4500;font-size:14px;font-weight:800}.ds-safety h2{margin:0 0 3px;color:#3f3219;font-size:14px}.ds-safety p{margin:0;color:#4d4128;font-size:12px}@media(max-width:560px){.ds-safety{padding:15px}}"
+    },
+    {
+      "name": "Session Boundary Note",
+      "kind": "custom",
+      "refersTo": "callout-safety",
+      "description": "Compact local-retention and account-risk summary within the session controls, especially visible on narrow screens.",
+      "html": "<aside class=\"ds-session-boundary\"><strong>LOCAL · 200 EVENTS MAX</strong><p>At most 200 text events stay in memory; they clear on logout or exit. Local safeguards cannot guarantee against restrictions.</p></aside>",
+      "css": ".ds-session-boundary{padding:12px 13px;border:1px solid #d6c18b;border-radius:7px;color:#493b21;background:#fff8e6}.ds-session-boundary strong{display:block;margin-bottom:2px;font-size:10px;letter-spacing:.07em}.ds-session-boundary p{margin:0;color:#59482a;font-size:11px;line-height:1.4}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Local Session Board",
+    "overview": "The panel borrows departure-board discipline only in compact status typography, tabular date/time/counts, state colors, and the in-place UPDATED and NEW markers. Its masthead, buttons, fields, bordered work areas, and responsive stacking remain familiar web UI. A cool light canvas and dark blue-green ink keep the single-session controls and live events easy to scan.",
+    "keyCharacteristics": [
+      "Cool neutral surfaces, dark blue-green ink, and a restrained teal action color.",
+      "System sans-serif hierarchy with tabular numerals for time and counts.",
+      "Semantic state color and persistent update markers; no airport-screen decoration."
+    ],
+    "rules": [],
+    "dos": [
+      "Do keep controls and work areas in familiar web patterns; reserve the board influence for type, tabular data, state color, and persistent update cues.",
+      "Do use the state-colored light alongside the written connection status.",
+      "Do keep date, event time, counts, and numbered facts tabular.",
+      "Do retain the cool borders, flat surfaces, and compact status labels."
+    ],
+    "donts": [
+      "Don't turn the panel into an airport-screen illustration or use board styling for navigation and controls.",
+      "Don't use state colors as general decoration or replace the written state with color alone.",
+      "Don't add surface shadows, gradients, or a new spacing/radius scale absent from the shipped CSS."
+    ]
+  }
+}

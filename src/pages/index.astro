@@ -1,0 +1,26 @@
+---
+import ActivityPanel from "@/src/components/ActivityPanel.astro";
+import Masthead from "@/src/components/Masthead.astro";
+import RetentionFooter from "@/src/components/RetentionFooter.astro";
+import SafetyNotice from "@/src/components/SafetyNotice.astro";
+import SessionControls from "@/src/components/SessionControls.astro";
+import SessionOverview from "@/src/components/SessionOverview.astro";
+import ControlPanelLayout from "@/src/layouts/ControlPanelLayout.astro";
+---
+
+<ControlPanelLayout>
+  <Masthead />
+  <main class="mx-auto w-[min(1440px,calc(100%-2*clamp(20px,5vw,76px)))] pt-[clamp(32px,5vw,66px)] pb-11 max-mobile:w-[calc(100%-32px)] max-mobile:pt-7.5">
+    <SessionOverview />
+    <div class="work-area grid grid-cols-[minmax(260px,.72fr)_minmax(0,1.55fr)] items-stretch gap-5 max-wide:grid-cols-[minmax(0,1fr)]">
+      <SessionControls />
+      <ActivityPanel />
+    </div>
+    <SafetyNotice />
+    <RetentionFooter />
+  </main>
+
+  <script>
+    import "@/src/scripts/control-panel.js";
+  </script>
+</ControlPanelLayout>

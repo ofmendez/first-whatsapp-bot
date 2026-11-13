@@ -1,0 +1,35 @@
+<section
+  class="overview mb-8.5 flex items-end justify-between gap-7.5 max-wide:flex-col max-wide:items-start max-mobile:mb-5.5"
+  aria-labelledby="page-title"
+>
+  <div class="overview-copy">
+    <p class="date-line" id="local-clock">
+      OWNER SESSION · <span>—</span>
+    </p>
+    <h1 class="max-mobile:text-[42px]" id="page-title">
+      WhatsApp
+    </h1>
+    <p class="overview-description">
+      Start one session, watch new direct-chat text and image activity, and switch accounts only
+      after logout.
+    </p>
+  </div>
+  <div
+    class="connection-readout relative flex min-h-21 min-w-57 items-center gap-3.25 rounded-[10px] border border-line bg-panel-raised px-4.5 py-4 max-wide:min-h-17.5 max-wide:w-full"
+    aria-live="polite"
+    aria-atomic="true"
+  >
+    <span
+      class="connection-light size-3 shrink-0 rounded-full"
+      id="connection-light"
+      aria-hidden="true"
+    ></span>
+    <div>
+      <span class="readout-label">SESSION STATUS</span>
+      <strong id="connection-status">Checking</strong>
+    </div>
+    <span class="connection-change absolute top-3 right-3.5" id="connection-change" hidden>
+      UPDATED
+    </span>
+  </div>
+</section>

@@ -1,4 +1,4 @@
-import { replyForCommand } from "./commands.js";
+import { replyForCommand } from "@/src/commands.js";
 
 export async function processUpsert({ messages, type }, send) {
   if (type !== "notify") return;
@@ -7,9 +7,7 @@ export async function processUpsert({ messages, type }, send) {
     if (message.key.fromMe) continue;
 
     const jid = message.key.remoteJid;
-    const text =
-      message.message?.conversation ??
-      message.message?.extendedTextMessage?.text;
+    const text = message.message?.conversation ?? message.message?.extendedTextMessage?.text;
 
     if (!jid || !text || jid.endsWith("@g.us")) continue;
 

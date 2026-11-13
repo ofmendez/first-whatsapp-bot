@@ -5,28 +5,31 @@ const handlers = new Map();
 const state = { synthetic: true };
 const saveCreds = mock(async () => {});
 const auth = mock(async () => ({ state, saveCreds }));
+const mediaDownload = mock(async () => ({ pipe() {} }));
 const socket = {
   ev: { on: mock((event, handler) => handlers.set(event, handler)) },
   sendMessage: mock(async function () {
     expect(this).toBe(socket);
   }),
+  logout: mock(async () => {}),
+  end: mock(() => {}),
+  user: { id: "synthetic@s.whatsapp.net", lid: "synthetic@lid" },
 };
 const makeSocket = mock(() => socket);
 const logger = {};
 const pino = mock(() => logger);
-const generateQR = mock(() => {});
 
 mock.module("@whiskeysockets/baileys", () => ({
   default: makeSocket,
+  downloadMediaMessage: mediaDownload,
   useMultiFileAuthState: auth,
   DisconnectReason: { loggedOut: 401 },
 }));
 mock.module("pino", () => ({ default: pino }));
-mock.module("qrcode-terminal", () => ({ default: { generate: generateQR } }));
 
-const { replyForCommand } = await import("../src/commands.js");
-const { processUpsert } = await import("../src/messages.js");
-const { startWhatsApp } = await import("../src/whatsapp.js");
+const { replyForCommand } = await import("@/src/commands.js");
+const { processUpsert } = await import("@/src/messages.js");
+const { createWhatsAppSession, downloadImageStream } = await import("@/src/whatsapp.js");
 const importAuthCalls = auth.mock.calls.length;
 const importSocketCalls = makeSocket.mock.calls.length;
 
@@ -52,14 +55,21 @@ test("ping uses exact reply and destination with trimmed, case-insensitive text"
 
 test("supported text fields retain nullish precedence", async () => {
   const send = mock(async () => {});
-  await processUpsert(batch(
-    incoming({ extendedTextMessage: { text: "!ping" } }, "extended"),
-    incoming({ conversation: null, extendedTextMessage: { text: "!ping" } }, "null"),
-    incoming({ conversation: "", extendedTextMessage: { text: "!ping" } }),
-    incoming({ conversation: "!unknown", extendedTextMessage: { text: "!ping" } }),
-    incoming({ conversation: "!ping", extendedTextMessage: { text: "!unknown" } }, "plain"),
-  ), send);
-  expect(send.mock.calls).toEqual([["extended", reply], ["null", reply], ["plain", reply]]);
+  await processUpsert(
+    batch(
+      incoming({ extendedTextMessage: { text: "!ping" } }, "extended"),
+      incoming({ conversation: null, extendedTextMessage: { text: "!ping" } }, "null"),
+      incoming({ conversation: "", extendedTextMessage: { text: "!ping" } }),
+      incoming({ conversation: "!unknown", extendedTextMessage: { text: "!ping" } }),
+      incoming({ conversation: "!ping", extendedTextMessage: { text: "!unknown" } }, "plain"),
+    ),
+    send,
+  );
+  expect(send.mock.calls).toEqual([
+    ["extended", reply],
+    ["null", reply],
+    ["plain", reply],
+  ]);
 });
 
 test("non-notify batches are ignored before examining messages", async () => {
@@ -72,17 +82,20 @@ test("non-notify batches are ignored before examining messages", async () => {
 
 test("own-account, group, incomplete, empty and unknown messages are skipped", async () => {
   const send = mock(async () => {});
-  await processUpsert(batch(
-    incoming({ conversation: "!ping" }, "self", true),
-    incoming({ conversation: "!ping" }, "synthetic@g.us"),
-    incoming({ conversation: "!ping" }, null),
-    incoming({ conversation: "!ping" }, ""),
-    incoming(undefined),
-    incoming({}),
-    incoming({ conversation: "" }),
-    incoming({ conversation: "   " }),
-    incoming({ conversation: "!unknown" }),
-  ), send);
+  await processUpsert(
+    batch(
+      incoming({ conversation: "!ping" }, "self", true),
+      incoming({ conversation: "!ping" }, "synthetic@g.us"),
+      incoming({ conversation: "!ping" }, null),
+      incoming({ conversation: "!ping" }, ""),
+      incoming(undefined),
+      incoming({}),
+      incoming({ conversation: "" }),
+      incoming({ conversation: "   " }),
+      incoming({ conversation: "!unknown" }),
+    ),
+    send,
+  );
   expect(send).not.toHaveBeenCalled();
 });
 
@@ -94,10 +107,13 @@ test("sends finish sequentially within a batch", async () => {
     if (jid === "first") await first.promise;
     events.push(`end ${jid}`);
   });
-  const processing = processUpsert(batch(
-    incoming({ conversation: "!ping" }, "first"),
-    incoming({ conversation: "!ping" }, "second"),
-  ), send);
+  const processing = processUpsert(
+    batch(
+      incoming({ conversation: "!ping" }, "first"),
+      incoming({ conversation: "!ping" }, "second"),
+    ),
+    send,
+  );
   expect(events).toEqual(["start first"]);
   first.resolve();
   await processing;
@@ -106,11 +122,18 @@ test("sends finish sequentially within a batch", async () => {
 
 test("send rejection propagates without retry or subsequent sends", async () => {
   const error = new Error("synthetic send failure");
-  const send = mock(async () => { throw error; });
-  await expect(processUpsert(batch(
-    incoming({ conversation: "!ping" }, "first"),
-    incoming({ conversation: "!ping" }, "second"),
-  ), send)).rejects.toBe(error);
+  const send = mock(async () => {
+    throw error;
+  });
+  await expect(
+    processUpsert(
+      batch(
+        incoming({ conversation: "!ping" }, "first"),
+        incoming({ conversation: "!ping" }, "second"),
+      ),
+      send,
+    ),
+  ).rejects.toBe(error);
   expect(send.mock.calls).toEqual([["first", reply]]);
 });
 
@@ -118,10 +141,13 @@ test("processing emits neither message bodies nor sender identifiers", async () 
   const log = spyOn(console, "log").mockImplementation(() => {});
   const error = spyOn(console, "error").mockImplementation(() => {});
   try {
-    await processUpsert(batch(
-      incoming({ conversation: "private synthetic text" }, "private-sender"),
-      incoming({ conversation: "!ping" }, "private-sender"),
-    ), async () => {});
+    await processUpsert(
+      batch(
+        incoming({ conversation: "private synthetic text" }, "private-sender"),
+        incoming({ conversation: "!ping" }, "private-sender"),
+      ),
+      async () => {},
+    );
     expect(log).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
   } finally {
@@ -130,67 +156,132 @@ test("processing emits neither message bodies nor sender identifiers", async () 
   }
 });
 
-test("explicit startup wires one socket, persistence, pairing, lifecycle and bound sends", async () => {
+test("explicit session factory wires one socket, persistence, transient pairing, and self-only sends", async () => {
   const log = spyOn(console, "log").mockImplementation(() => {});
+  const onPairing = mock(() => {});
+  const onOpen = mock(() => {});
+  const onClose = mock(() => {});
+  const onUpsert = mock(() => {});
   try {
-    await startWhatsApp();
+    const session = await createWhatsAppSession({ onPairing, onOpen, onClose, onUpsert });
     expect(auth.mock.calls).toEqual([["./auth_info"]]);
     expect(pino.mock.calls).toEqual([[{ level: "silent" }]]);
-    expect(makeSocket.mock.calls).toEqual([[{
-      auth: state, logger, markOnlineOnConnect: false,
-    }]]);
+    expect(makeSocket.mock.calls).toEqual([
+      [
+        {
+          auth: state,
+          logger,
+          markOnlineOnConnect: false,
+        },
+      ],
+    ]);
     expect([...handlers.keys()]).toEqual(["creds.update", "connection.update", "messages.upsert"]);
-    expect(handlers.get("creds.update")).toBe(saveCreds);
+    expect(typeof handlers.get("creds.update")).toBe("function");
     await handlers.get("creds.update")();
     expect(saveCreds).toHaveBeenCalledTimes(1);
 
     const connection = handlers.get("connection.update");
     connection({ qr: "synthetic-pairing-code" });
-    expect(generateQR.mock.calls).toEqual([["synthetic-pairing-code", { small: true }]]);
+    expect(onPairing.mock.calls).toEqual([["synthetic-pairing-code"]]);
     connection({ connection: "open" });
-    connection({ connection: "close", lastDisconnect: { error: { output: { statusCode: 401 } } } });
-    connection({ connection: "close", lastDisconnect: { error: { output: { statusCode: 500 } } } });
-    connection({ connection: "close" });
-    expect(log.mock.calls).toEqual([
-      ["WhatsApp connected!"], ["Session logged out"], ["Connection lost"], ["Connection lost"],
-    ]);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(log).not.toHaveBeenCalled();
     expect(makeSocket).toHaveBeenCalledTimes(1);
 
     const upsert = handlers.get("messages.upsert");
-    await upsert({ type: "append", messages: [incoming({ conversation: "!ping" })] });
-    expect(socket.sendMessage).not.toHaveBeenCalled();
-    await upsert(batch(incoming({ conversation: "!ping" })));
+    upsert({ type: "append", messages: [incoming({ conversation: "!ping" })] });
+    expect(onUpsert.mock.calls[0][0].type).toBe("append");
+    upsert(
+      batch(
+        incoming({ imageMessage: { mimetype: "image/jpeg", caption: "!ping" } }, "image"),
+        incoming({ imageMessage: { mimetype: "image/jpeg" } }, "self", true),
+      ),
+    );
+    const commandSent = Promise.withResolvers();
+    socket.sendMessage.mockImplementation(async function (jid, content) {
+      expect(this).toBe(socket);
+      if (content.text === reply.text) commandSent.resolve();
+    });
+    upsert(batch(incoming({ conversation: "!ping" }, "self", true)));
+    onUpsert.mockImplementationOnce(() => {
+      throw new Error("private passive image failure");
+    });
+    upsert(
+      batch(
+        incoming(
+          { imageMessage: { mimetype: "image/jpeg", caption: "!ping" } },
+          "image-with-command",
+        ),
+        incoming({ conversation: "!ping" }),
+      ),
+    );
+    await commandSent.promise;
+    expect(socket.sendMessage).toHaveBeenCalledTimes(1);
+    expect(onUpsert.mock.calls.length).toBe(4);
     expect(socket.sendMessage.mock.calls).toEqual([["synthetic@s.whatsapp.net", reply]]);
+
+    await session.sendSelf("synthetic manual self-chat");
+    expect(socket.sendMessage.mock.calls[1]).toEqual([
+      "synthetic@s.whatsapp.net",
+      { text: "synthetic manual self-chat" },
+    ]);
+
+    const stream = await downloadImageStream(
+      incoming({ imageMessage: { mimetype: "image/jpeg" } }),
+    );
+    expect(stream).toHaveProperty("pipe");
+    expect(mediaDownload.mock.calls.at(-1)).toEqual([
+      incoming({ imageMessage: { mimetype: "image/jpeg" } }),
+      "stream",
+      {},
+    ]);
+
+    socket.logout.mockImplementation(async () => {
+      connection({
+        connection: "close",
+        lastDisconnect: { error: { output: { statusCode: 401 } } },
+      });
+    });
+    await session.logout();
+    expect(onClose.mock.calls).toEqual([[{ loggedOut: true }]]);
+
+    const secondSession = await createWhatsAppSession({ onPairing, onOpen, onClose, onUpsert });
+    socket.end.mockImplementation(() => handlers.get("connection.update")({ connection: "close" }));
+    await secondSession.end();
+    expect(onClose.mock.calls.at(-1)).toEqual([{ loggedOut: false }]);
+
     const failure = new Error("synthetic event send failure");
     socket.sendMessage.mockRejectedValueOnce(failure);
-    await expect(upsert(batch(incoming({ conversation: "!ping" })))).rejects.toBe(failure);
+    await expect(secondSession.sendSelf("synthetic failing send")).rejects.toBe(failure);
   } finally {
     log.mockRestore();
   }
 });
 
-test("entry point reports only a generic startup failure", async () => {
-  const error = spyOn(console, "error").mockImplementation(() => {});
-  const log = spyOn(console, "log").mockImplementation(() => {});
-  auth.mockRejectedValueOnce(new Error("synthetic private credentials and sender"));
-  try {
-    await import("../index.js");
-    await Bun.sleep(0);
-    expect(error.mock.calls).toEqual([["WhatsApp startup failed"]]);
-    expect(log).not.toHaveBeenCalled();
-    expect(makeSocket).toHaveBeenCalledTimes(1);
-  } finally {
-    error.mockRestore();
-    log.mockRestore();
-  }
+test("importing the application entry point does not open a WhatsApp session", async () => {
+  const authCalls = auth.mock.calls.length;
+  const socketCalls = makeSocket.mock.calls.length;
+  await import("@/index.js");
+  expect(auth.mock.calls.length).toBe(authCalls);
+  expect(makeSocket.mock.calls.length).toBe(socketCalls);
 });
 
 test("root auth directory is ignored using synthetic paths", () => {
-  const result = Bun.spawnSync(["git", "check-ignore", "--no-index", "auth_info/synthetic-test.json", "auth_info/synthetic-nested/test.json"], {
-    cwd: new URL("..", import.meta.url).pathname,
-  });
+  const result = Bun.spawnSync(
+    [
+      "git",
+      "check-ignore",
+      "--no-index",
+      "auth_info/synthetic-test.json",
+      "auth_info/synthetic-nested/test.json",
+    ],
+    {
+      cwd: new URL("..", import.meta.url).pathname,
+    },
+  );
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString().trim().split("\n")).toEqual([
-    "auth_info/synthetic-test.json", "auth_info/synthetic-nested/test.json",
+    "auth_info/synthetic-test.json",
+    "auth_info/synthetic-nested/test.json",
   ]);
 });

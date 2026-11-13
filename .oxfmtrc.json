@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "astro": true,
+  "sortTailwindcss": {
+    "stylesheet": "./src/styles/global.css"
+  },
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "dist/**",
+    "node_modules/**",
+    ".astro/**",
+    ".env*",
+    "auth_info/**",
+    "received-images/**",
+    "openspec/**",
+    ".opencode/**",
+    ".impeccable/**"
+  ]
+}
