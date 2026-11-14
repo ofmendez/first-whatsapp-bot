@@ -2,8 +2,7 @@ import { replyForCommand } from "@/src/commands.js";
 import { normalizeJid } from "@/src/message-feed.js";
 
 const ALBUM_COMMAND = "inicia album";
-const ALBUM_CONFIRMATION =
-  "Hemos iniciado, ya estoy disponible!";
+const ALBUM_CONFIRMATION = "Hemos iniciado, ya estoy disponible!";
 const DIRECT_CHAT_SERVERS = new Set(["s.whatsapp.net", "lid", "c.us"]);
 
 function messageText(message) {
@@ -62,7 +61,7 @@ export async function processUpsert(
       displayName: message.pushName || "unknown-contact",
     });
     if (!approval?.approved) continue;
-    if (approval.newlyApproved) {
+    if (approval.newlyApproved || approval.reactivated) {
       try {
         onAlbumApproved?.(approval);
       } catch {

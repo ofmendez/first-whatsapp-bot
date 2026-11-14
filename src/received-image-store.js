@@ -426,6 +426,24 @@ export class ReceivedImageStore {
     });
   }
 
+  async #reactivateConversation(conversationId) {
+    return this.#withVisibilityLock(async () => {
+      const previous = await this.#readAlbumVisibilityConfiguration();
+      if (!previous.hiddenConversationIds.includes(conversationId)) return false;
+      if (previous.revision === Number.MAX_SAFE_INTEGER) {
+        throw new AlbumVisibilityUnavailableError();
+      }
+
+      // Persisting visibility also reserves this reactivation's confirmation attempt.
+      await this.#writeAlbumVisibilityConfiguration({
+        ...previous,
+        revision: previous.revision + 1,
+        hiddenConversationIds: previous.hiddenConversationIds.filter((id) => id !== conversationId),
+      });
+      return true;
+    });
+  }
+
   async #withApprovalLock(identity, operation) {
     const previous = this.#approvalLocks.get(identity) ?? Promise.resolve();
     let release;
@@ -590,11 +608,13 @@ export class ReceivedImageStore {
         throw new Error("Album approval record is invalid");
       }
       if (previous.valid && previous.record.albumed) {
+        const reactivated = await this.#reactivateConversation(previous.record.conversationId);
         return {
           approved: true,
           conversationId: previous.record.conversationId,
           newlyApproved: false,
-          shouldConfirm: false,
+          reactivated,
+          shouldConfirm: reactivated,
         };
       }
 

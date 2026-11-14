@@ -277,13 +277,20 @@ and quoted text do not.
 
 After the approval record is durably written, the bot attempts this reply once:
 
-> Álbum iniciado. Las imágenes de esta conversación se incluirán en el álbum.
+> Hemos iniciado, ya estoy disponible!
 
 The attempt is reserved before sending to avoid duplicate replies. A crash
 between reservation and send, or a failed send, can therefore leave the
 conversation approved without a delivered confirmation. It is at most one
 automatic attempt, not an exactly-once delivery guarantee; there is no automatic
 retry. Approval itself does not expire on logout or restart.
+
+If the dashboard has hidden an approved conversation, a new `inicia album`
+command restores its visibility and attempts the same confirmation once for that
+reactivation. Visibility is saved before sending; a crash or failed send is not
+retried automatically. Repeated commands while already visible remain silent.
+Reactivation preserves other hidden conversations and increments the visibility
+revision, so dashboard tabs with stale selections must reload before saving.
 
 Opt-in includes the whole retained account/chat folder: supported images saved
 before approval and supported images received afterward are eligible. Approved

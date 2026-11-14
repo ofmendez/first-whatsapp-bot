@@ -140,7 +140,7 @@ test("album opt-in accepts normalized exact direct-contact text and confirms aft
     order.push("send");
     expect(jid).toBe("contact@s.whatsapp.net");
     expect(content).toEqual({
-      text: "Álbum iniciado. Las imágenes de esta conversación se incluirán en el álbum.",
+      text: "Hemos iniciado, ya estoy disponible!",
     });
   });
   const onAlbumApproved = mock(() => order.push("dashboard-update"));
@@ -373,10 +373,7 @@ test("explicit session factory wires one socket, persistence, transient pairing,
     socket.sendMessage.mockImplementation(async function (jid, content) {
       expect(this).toBe(socket);
       if (content.text === reply.text) commandSent.resolve();
-      if (
-        content.text ===
-        "Álbum iniciado. Las imágenes de esta conversación se incluirán en el álbum."
-      ) {
+      if (content.text === "Hemos iniciado, ya estoy disponible!") {
         albumSent.resolve();
       }
     });
@@ -415,7 +412,7 @@ test("explicit session factory wires one socket, persistence, transient pairing,
       [
         "contact@s.whatsapp.net",
         {
-          text: "Álbum iniciado. Las imágenes de esta conversación se incluirán en el álbum.",
+          text: "Hemos iniciado, ya estoy disponible!",
         },
       ],
     ]);

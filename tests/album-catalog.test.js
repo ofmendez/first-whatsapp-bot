@@ -4,6 +4,7 @@ import { basename, dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { expect, test } from "bun:test";
 import { AlbumImageCatalog, AlbumPaginationError } from "@/src/album-catalog.js";
+import { processUpsert } from "@/src/messages.js";
 import { ReceivedImageStore } from "@/src/received-image-store.js";
 
 const accountJid = "owner@s.whatsapp.net";
@@ -402,6 +403,45 @@ test("visibility filters pages and direct media, then restores retained images w
     expect(await catalog.openMedia(hiddenImage.imageId)).toMatchObject({
       contentType: "image/png",
     });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a new opt-in restores hidden retained images and direct media before confirmation", async () => {
+  const { root, store, catalog } = await makeFixture("album-catalog-command-reactivation-");
+  try {
+    const approval = await store.approveConversation({ accountJid, chatJid: firstChat });
+    const saved = await saveImage(store, firstChat, "reactivated-image");
+    await catalog.refresh();
+    await store.saveAlbumVisibility({
+      revision: 0,
+      hiddenConversationIds: [approval.conversationId],
+    });
+    expect((await catalog.listPage()).items).toEqual([]);
+    expect(await catalog.openMedia(saved.imageId)).toBeUndefined();
+
+    const replies = [];
+    await processUpsert(
+      {
+        type: "notify",
+        messages: [
+          {
+            key: { remoteJid: firstChat, fromMe: false },
+            message: { conversation: "inicia album" },
+          },
+        ],
+      },
+      async (jid, content) => {
+        expect((await catalog.listPage()).items.map(({ id }) => id)).toEqual([saved.imageId]);
+        expect(await catalog.openMedia(saved.imageId)).toMatchObject({
+          contentType: "image/png",
+        });
+        replies.push({ jid, ...content });
+      },
+      { accountJids: [accountJid], albumService: store },
+    );
+    expect(replies).toEqual([{ jid: firstChat, text: "Hemos iniciado, ya estoy disponible!" }]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
