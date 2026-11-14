@@ -355,3 +355,141 @@ test("cursor traversal skips deleted or unapproved records and sees new images o
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("visibility filters pages and direct media, then restores retained images when re-enabled", async () => {
+  const { root, store, catalog } = await makeFixture("album-catalog-visibility-");
+  try {
+    await store.approveConversation({
+      accountJid,
+      chatJid: firstChat,
+      displayName: "First contact",
+    });
+    await store.approveConversation({
+      accountJid,
+      chatJid: secondChat,
+      displayName: "Second contact",
+    });
+    const hiddenImage = await saveImage(store, firstChat, "hidden-conversation-image", {
+      timestamp: "2026-11-12T12:00:00.000Z",
+    });
+    const visibleImage = await saveImage(store, secondChat, "visible-conversation-image", {
+      timestamp: "2026-11-13T12:00:00.000Z",
+    });
+
+    const visiblePage = await catalog.listPage();
+    expect(visiblePage.items.map(({ id }) => id)).toEqual([
+      visibleImage.imageId,
+      hiddenImage.imageId,
+    ]);
+    expect(await catalog.openMedia(hiddenImage.imageId)).toMatchObject({
+      contentType: "image/png",
+    });
+
+    await store.saveAlbumVisibility({
+      revision: 0,
+      hiddenConversationIds: [store.getConversationIdentity(accountJid, firstChat).conversationId],
+    });
+    const hiddenPage = await catalog.listPage();
+    expect(hiddenPage.items.map(({ id }) => id)).toEqual([visibleImage.imageId]);
+    expect(await catalog.openMedia(hiddenImage.imageId)).toBeUndefined();
+
+    await store.saveAlbumVisibility({ revision: 1, hiddenConversationIds: [] });
+    const restoredPage = await catalog.listPage();
+    expect(restoredPage.items.map(({ id }) => id)).toEqual([
+      visibleImage.imageId,
+      hiddenImage.imageId,
+    ]);
+    expect(await catalog.openMedia(hiddenImage.imageId)).toMatchObject({
+      contentType: "image/png",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("cursor traversal skips conversations hidden between pages and fills visible results", async () => {
+  const { root, store, catalog } = await makeFixture("album-catalog-visibility-cursor-");
+  try {
+    await store.approveConversation({
+      accountJid,
+      chatJid: firstChat,
+      displayName: "First contact",
+    });
+    await store.approveConversation({
+      accountJid,
+      chatJid: secondChat,
+      displayName: "Second contact",
+    });
+    const hiddenImages = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        saveImage(store, firstChat, `cursor-hidden-${index}`, {
+          timestamp: `2026-11-12T12:00:0${index + 4}.000Z`,
+        }),
+      ),
+    );
+    const visibleImages = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        saveImage(store, secondChat, `cursor-visible-${index}`, {
+          timestamp: `2026-11-12T12:00:0${index}.000Z`,
+        }),
+      ),
+    );
+
+    const firstPage = await catalog.listPage({ limit: 2 });
+    expect(firstPage.items.map(({ id }) => id)).toEqual(
+      hiddenImages
+        .slice(-2)
+        .map(({ imageId }) => imageId)
+        .reverse(),
+    );
+    expect(firstPage.nextCursor).not.toBeNull();
+
+    await store.saveAlbumVisibility({
+      revision: 0,
+      hiddenConversationIds: [store.getConversationIdentity(accountJid, firstChat).conversationId],
+    });
+    const traversed = [...firstPage.items];
+    let page = await catalog.listPage({ limit: 2, cursor: firstPage.nextCursor });
+    while (true) {
+      traversed.push(...page.items);
+      if (page.nextCursor === null) break;
+      page = await catalog.listPage({ limit: 2, cursor: page.nextCursor });
+    }
+
+    expect(traversed).toHaveLength(6);
+    expect(new Set(traversed.map(({ id }) => id))).toEqual(
+      new Set([
+        ...hiddenImages.slice(-2).map(({ imageId }) => imageId),
+        ...visibleImages.map(({ imageId }) => imageId),
+      ]),
+    );
+    expect(
+      traversed.slice(2).every(({ id }) => visibleImages.some((image) => image.imageId === id)),
+    ).toBe(true);
+
+    await store.saveAlbumVisibility({ revision: 1, hiddenConversationIds: [] });
+    expect((await catalog.listPage()).items).toHaveLength(8);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("malformed album visibility fails closed for listings and direct media", async () => {
+  const { root, store, catalog } = await makeFixture("album-catalog-visibility-invalid-");
+  try {
+    await store.approveConversation({
+      accountJid,
+      chatJid: firstChat,
+      displayName: "First contact",
+    });
+    const saved = await saveImage(store, firstChat, "invalid-visibility-image");
+    await writeFile(join(root, "album-visibility.json"), "{malformed", { mode: 0o600 });
+
+    await expect(catalog.listPage()).rejects.toThrow("Album visibility is unavailable.");
+    await expect(catalog.openMedia(saved.imageId)).rejects.toThrow(
+      "Album visibility is unavailable.",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

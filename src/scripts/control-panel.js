@@ -4,6 +4,7 @@ import {
   activityEmptyCopy,
   selectActivityMessages,
 } from "@/src/activity-filter.js";
+import { createAlbumVisibilityController } from "@/src/album-visibility-controller.js";
 
 const byId = (id) => document.getElementById(id);
 const startButton = byId("start-button");
@@ -16,6 +17,13 @@ const reviewPanel = byId("review-panel");
 const activityList = byId("activity-list");
 const emptyState = byId("empty-state");
 const albumedOnly = byId("albumed-only");
+const albumVisibilityCount = byId("album-visibility-count");
+const albumVisibilityFieldset = byId("album-visibility-fieldset");
+const albumVisibilityList = byId("album-visibility-list");
+const albumVisibilityEmpty = byId("album-visibility-empty");
+const albumVisibilityFeedback = byId("album-visibility-feedback");
+const albumVisibilityReload = byId("album-visibility-reload");
+const albumVisibilitySave = byId("album-visibility-save");
 const emptyStateTitle = byId("empty-state-title");
 const emptyStateDescription = byId("empty-state-description");
 const messageInput = byId("message-input");
@@ -28,6 +36,9 @@ let latestMessageId = null;
 let latestMessageSequence = -1;
 let socketEvents;
 let redirectingToLogin = false;
+let albumVisibilityController;
+let albumVisibilityListSignature;
+const albumVisibilityInputs = new Map();
 
 function redirectToLogin() {
   if (redirectingToLogin) return;
@@ -265,6 +276,77 @@ function renderMessages(newestId) {
   byId("activity-count").textContent = activityCountLabel(sorted.length);
 }
 
+function renderAlbumVisibility(snapshot) {
+  const conversations = snapshot.conversations;
+  const signature = JSON.stringify(
+    conversations.map(({ conversationId, label, imageCount }) => [
+      conversationId,
+      label,
+      imageCount,
+    ]),
+  );
+  if (signature !== albumVisibilityListSignature) {
+    albumVisibilityList.replaceChildren();
+    albumVisibilityInputs.clear();
+    for (const conversation of conversations) {
+      const option = document.createElement("label");
+      option.className =
+        "album-visibility-option flex min-h-16 cursor-pointer items-center gap-3 px-3.5 py-3";
+
+      const checkbox = document.createElement("input");
+      checkbox.className = "size-4 shrink-0 accent-brand";
+      checkbox.type = "checkbox";
+      checkbox.id = `album-visibility-${conversation.conversationId}`;
+      checkbox.dataset.conversationId = conversation.conversationId;
+      checkbox.setAttribute("aria-describedby", "album-visibility-help");
+      checkbox.addEventListener("change", () => {
+        albumVisibilityController.setVisible(conversation.conversationId, checkbox.checked);
+      });
+
+      const copy = document.createElement("span");
+      copy.className = "flex min-w-0 flex-1 items-center justify-between gap-3";
+      const name = document.createElement("strong");
+      name.className = "min-w-0 truncate text-sm font-semibold text-ink";
+      name.textContent = conversation.label;
+      const count = document.createElement("span");
+      count.className = "album-visibility-option-count shrink-0 text-right text-[11px] text-muted";
+      count.textContent = `${conversation.imageCount} ${conversation.imageCount === 1 ? "image" : "images"}`;
+
+      option.htmlFor = checkbox.id;
+      option.append(checkbox, name, count);
+      albumVisibilityList.append(option);
+      albumVisibilityInputs.set(conversation.conversationId, checkbox);
+    }
+    albumVisibilityListSignature = signature;
+  }
+
+  for (const conversation of conversations) {
+    const checkbox = albumVisibilityInputs.get(conversation.conversationId);
+    if (!checkbox) continue;
+    checkbox.checked = conversation.visible;
+    checkbox.disabled = snapshot.status === "loading" || snapshot.status === "saving";
+    checkbox.parentElement.dataset.visible = String(conversation.visible);
+  }
+
+  const loaded = snapshot.revision !== undefined;
+  const count = conversations.length;
+  albumVisibilityCount.textContent = loaded
+    ? `${count} APPROVED CONVERSATION${count === 1 ? "" : "S"}`
+    : snapshot.status === "loading"
+      ? "Loading approvals…"
+      : "Approvals unavailable";
+  albumVisibilityFieldset.disabled =
+    !loaded || snapshot.status === "loading" || snapshot.status === "saving";
+  albumVisibilityEmpty.hidden = !loaded || count > 0;
+  albumVisibilityFeedback.textContent = snapshot.message;
+  albumVisibilityFeedback.dataset.state = snapshot.status;
+  albumVisibilitySave.disabled = !snapshot.canSave;
+  albumVisibilitySave.textContent = snapshot.status === "saving" ? "Saving…" : "Save visibility";
+  albumVisibilityReload.hidden = !snapshot.canReload;
+  albumVisibilityReload.disabled = snapshot.status === "loading" || snapshot.status === "saving";
+  albumVisibilityReload.textContent = snapshot.reloadLabel;
+}
+
 function createImageUnavailable() {
   const placeholder = document.createElement("p");
   placeholder.className = "image-unavailable";
@@ -289,6 +371,49 @@ async function api(path, body) {
     throw new Error(result.error || "Request failed. Review the session state and try again.");
   return result;
 }
+
+async function loadAlbumVisibility() {
+  const response = await fetch("/api/album/conversations", {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  return readVisibilityResponse(response);
+}
+
+async function saveAlbumVisibility(payload) {
+  const response = await fetch("/api/album/visibility", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readVisibilityResponse(response);
+}
+
+async function readVisibilityResponse(response) {
+  const result = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    redirectToLogin();
+    const error = new Error("Your dashboard session has ended.");
+    error.status = 401;
+    throw error;
+  }
+  if (!response.ok) {
+    const error = new Error(result.error || "Album visibility request failed.");
+    error.status = response.status;
+    throw error;
+  }
+  return result;
+}
+
+albumVisibilityController = createAlbumVisibilityController({
+  load: loadAlbumVisibility,
+  save: saveAlbumVisibility,
+  onChange: renderAlbumVisibility,
+});
+
+albumVisibilitySave.addEventListener("click", () => albumVisibilityController.save());
+albumVisibilityReload.addEventListener("click", () => albumVisibilityController.load());
 
 dashboardSignOutButton.addEventListener("click", async () => {
   dashboardSignOutButton.disabled = true;
@@ -442,5 +567,5 @@ function connectEvents() {
 
 updateClock();
 setInterval(updateClock, 60_000);
-await loadState();
+await Promise.all([loadState(), albumVisibilityController.load()]);
 if (!redirectingToLogin) connectEvents();

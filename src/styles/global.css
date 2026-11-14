@@ -449,6 +449,36 @@
     color: #435963;
     font-size: 12px;
   }
+  .album-visibility-count {
+    font-variant-numeric: tabular-nums;
+  }
+  .album-visibility-feedback[data-state="saved"] {
+    color: var(--color-success);
+  }
+  .album-visibility-feedback[data-state="error"],
+  .album-visibility-feedback[data-state="conflict"] {
+    color: var(--color-danger);
+  }
+  .album-visibility-option {
+    border: 1px solid #d8e0e2;
+    border-radius: 6px;
+    background: #f8faf9;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease;
+  }
+  .album-visibility-option:hover {
+    background: #f3f7f7;
+  }
+  .album-visibility-option[data-visible="true"] {
+    border-color: var(--color-brand);
+    background: #eff6f5;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .album-visibility-option {
+      transition: none;
+    }
+  }
 
   .safety-symbol {
     color: #7d4500;

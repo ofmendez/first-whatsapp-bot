@@ -54,6 +54,7 @@ export async function startControlPanel() {
   const handle = createControlHandler({
     manager,
     mediaStore: imageStore,
+    albumVisibilityStore: imageStore,
     dashboardAuth,
     albumAuth,
     albumCatalog,

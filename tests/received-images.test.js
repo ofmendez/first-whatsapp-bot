@@ -4,7 +4,12 @@ import { basename, dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { expect, mock, test } from "bun:test";
 import { ImageReceiver } from "@/src/image-receiver.js";
-import { ReceivedImageStore } from "@/src/received-image-store.js";
+import {
+  AlbumVisibilityConflictError,
+  AlbumVisibilityUnavailableError,
+  AlbumVisibilityValidationError,
+  ReceivedImageStore,
+} from "@/src/received-image-store.js";
 import { SessionController } from "@/src/session-controller.js";
 
 const imageStream = (value = "synthetic image bytes") => Readable.from([Buffer.from(value)]);
@@ -589,6 +594,151 @@ test("logout and process shutdown clear transient image events but retain saved 
     expect(await afterRestart.openMedia(logoutMediaId)).toBeUndefined();
     expect(await afterRestart.openMedia(shutdownMediaId)).toBeUndefined();
     expect((await readdir(join(root, foldersAfterLogout[0]))).length).toBe(4);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("album visibility defaults to visible, includes empty approvals, and isolates linked accounts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "album-visibility-defaults-"));
+  try {
+    const store = new ReceivedImageStore({ root });
+    const firstApproval = {
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "same-contact@s.whatsapp.net",
+      displayName: "Same Contact",
+    };
+    const secondApproval = {
+      ...firstApproval,
+      accountJid: "another-owner@s.whatsapp.net",
+    };
+    const first = await store.approveConversation(firstApproval);
+    const second = await store.approveConversation(secondApproval);
+    await store.save({
+      ...firstApproval,
+      messageId: "one-retained-image",
+      timestamp: "2026-11-12T12:00:00.000Z",
+      mimeType: "image/png",
+      stream: imageStream(),
+    });
+
+    expect(await store.getAlbumVisibility()).toEqual({
+      revision: 0,
+      hiddenConversationIds: [],
+    });
+    const conversations = await store.listApprovedConversations();
+    expect(conversations).toHaveLength(2);
+    expect(
+      conversations.find(({ conversationId }) => conversationId === first.conversationId),
+    ).toMatchObject({
+      imageCount: 1,
+    });
+    expect(
+      conversations.find(({ conversationId }) => conversationId === second.conversationId),
+    ).toMatchObject({
+      imageCount: 0,
+    });
+    expect(conversations.every(({ label }) => label.startsWith("Same Contact · "))).toBe(true);
+    expect(JSON.stringify(conversations)).not.toContain(root);
+    expect(JSON.stringify(conversations)).not.toContain(firstApproval.accountJid);
+    expect(JSON.stringify(conversations)).not.toContain(firstApproval.chatJid);
+    expect(second.conversationId).not.toBe(first.conversationId);
+
+    await store.saveAlbumVisibility({
+      revision: 0,
+      hiddenConversationIds: [first.conversationId],
+    });
+    const restartedStore = new ReceivedImageStore({ root });
+    expect(await restartedStore.getAlbumVisibility()).toEqual({
+      revision: 1,
+      hiddenConversationIds: [first.conversationId],
+    });
+    expect(await restartedStore.listApprovedConversations()).toHaveLength(2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("album visibility rejects stale revisions and unknown approved-conversation IDs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "album-visibility-revisions-"));
+  try {
+    const store = new ReceivedImageStore({ root });
+    const first = await store.approveConversation({
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "first-contact@s.whatsapp.net",
+      displayName: "First Contact",
+    });
+    const second = await store.approveConversation({
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "second-contact@s.whatsapp.net",
+      displayName: "Second Contact",
+    });
+
+    await store.saveAlbumVisibility({
+      revision: 0,
+      hiddenConversationIds: [first.conversationId],
+    });
+    await expect(
+      store.saveAlbumVisibility({
+        revision: 0,
+        hiddenConversationIds: [second.conversationId],
+      }),
+    ).rejects.toBeInstanceOf(AlbumVisibilityConflictError);
+    await expect(
+      store.saveAlbumVisibility({
+        revision: 1,
+        hiddenConversationIds: ["f".repeat(64)],
+      }),
+    ).rejects.toBeInstanceOf(AlbumVisibilityValidationError);
+    expect(await store.getAlbumVisibility()).toEqual({
+      revision: 1,
+      hiddenConversationIds: [first.conversationId],
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("album visibility preserves the prior file on failed atomic writes and fails closed on corruption", async () => {
+  const root = await mkdtemp(join(tmpdir(), "album-visibility-atomic-"));
+  try {
+    const store = new ReceivedImageStore({ root });
+    const approval = await store.approveConversation({
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "contact@s.whatsapp.net",
+      displayName: "Contact",
+    });
+    await store.saveAlbumVisibility({ revision: 0, hiddenConversationIds: [] });
+    const configurationPath = join(root, "album-visibility.json");
+    const originalContents = await readFile(configurationPath, "utf8");
+    expect((await stat(configurationPath)).mode & 0o777).toBe(0o600);
+
+    const failedWriter = new ReceivedImageStore({
+      root,
+      renameMetadataFile: async () => {
+        throw new Error("synthetic visibility rename failure");
+      },
+    });
+    await expect(
+      failedWriter.saveAlbumVisibility({
+        revision: 1,
+        hiddenConversationIds: [approval.conversationId],
+      }),
+    ).rejects.toBeInstanceOf(AlbumVisibilityUnavailableError);
+    expect(await readFile(configurationPath, "utf8")).toBe(originalContents);
+    expect((await readdir(root)).some((name) => name.endsWith(".tmp"))).toBe(false);
+
+    await writeFile(configurationPath, "{malformed", { mode: 0o600 });
+    await expect(store.getAlbumVisibility()).rejects.toBeInstanceOf(
+      AlbumVisibilityUnavailableError,
+    );
+    await expect(
+      store.saveAlbumVisibility({
+        revision: 1,
+        hiddenConversationIds: [approval.conversationId],
+      }),
+    ).rejects.toBeInstanceOf(AlbumVisibilityUnavailableError);
+    expect(await readFile(configurationPath, "utf8")).toBe("{malformed");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

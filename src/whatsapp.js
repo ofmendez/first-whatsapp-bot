@@ -8,6 +8,26 @@ import { processUpsert } from "@/src/messages.js";
 import { normalizeJid } from "@/src/message-feed.js";
 
 const SOCKET_CLOSE_TIMEOUT_MS = 5000;
+const DISCONNECT_REASONS = new Map([
+  [401, "logged-out-or-rejected"],
+  [403, "forbidden"],
+  [408, "connection-lost-or-timed-out"],
+  [411, "multidevice-mismatch"],
+  [428, "connection-closed"],
+  [440, "connection-replaced"],
+  [500, "bad-session"],
+  [503, "service-unavailable"],
+  [515, "restart-required"],
+]);
+
+function disconnectDiagnostic(error) {
+  const code = error?.output?.statusCode;
+  const statusCode = Number.isInteger(code) && code >= 100 && code <= 599 ? code : null;
+  return {
+    statusCode,
+    reason: DISCONNECT_REASONS.get(statusCode) ?? "unknown",
+  };
+}
 
 function accountJids(user) {
   return [user?.id, user?.lid].filter((jid) => typeof jid === "string");
@@ -29,29 +49,66 @@ export async function createWhatsAppSession({
   onAlbumApproved,
   albumService,
 }) {
-  const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
-  const socket = makeWASocket({
-    auth: state,
-    logger: pino({ level: "silent" }),
-    markOnlineOnConnect: false,
-  });
+  let stage = "starting";
+  // Only fixed event/stage labels and sanitized numeric codes reach routine logs.
+  // Never pass library updates, errors, credential objects, or QR values here.
+  const diagnostic = (event, details = {}) => {
+    console.info("[whatsapp]", { event, stage, ...details });
+  };
+  diagnostic("session-start");
+  let state;
+  let saveCreds;
+  let socket;
+  try {
+    ({ state, saveCreds } = await useMultiFileAuthState("./auth_info"));
+    socket = makeWASocket({
+      auth: state,
+      logger: pino({ level: "silent" }),
+      markOnlineOnConnect: false,
+    });
+  } catch (error) {
+    diagnostic("session-start-failed");
+    throw error;
+  }
 
   let closed = false;
+  let hasQr = false;
+  let reportedSaveFailure = false;
   let resolveClosed;
   const closedPromise = new Promise((resolve) => {
     resolveClosed = resolve;
   });
 
   socket.ev.on("creds.update", () => {
-    void saveCreds().catch(() => {});
+    return saveCreds().catch(() => {
+      if (!reportedSaveFailure) {
+        reportedSaveFailure = true;
+        diagnostic("credentials-save-failed");
+      }
+    });
   });
 
-  socket.ev.on("connection.update", ({ connection, qr, lastDisconnect }) => {
-    if (qr) onPairing?.(qr);
-    if (connection === "open") onOpen?.();
-    if (connection === "close" && !closed) {
+  socket.ev.on("connection.update", ({ connection, qr, isNewLogin, lastDisconnect }) => {
+    if (closed) return;
+    if (qr) {
+      stage = "awaiting-scan";
+      diagnostic(hasQr ? "qr-refreshed" : "qr-issued");
+      hasQr = true;
+      onPairing?.(qr);
+    }
+    if (isNewLogin === true) {
+      stage = "paired-awaiting-connection";
+      diagnostic("pairing-accepted");
+    }
+    if (connection === "open") {
+      stage = "connected";
+      diagnostic("connection-open");
+      onOpen?.();
+    }
+    if (connection === "close") {
       closed = true;
       const status = lastDisconnect?.error?.output?.statusCode;
+      diagnostic("connection-close", disconnectDiagnostic(lastDisconnect?.error));
       onClose?.({ loggedOut: status === DisconnectReason.loggedOut });
       resolveClosed();
     }

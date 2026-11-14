@@ -8,12 +8,20 @@ import {
   isAllowedPanelOrigin,
 } from "./dashboard-auth.js";
 import { AlbumPaginationError } from "./album-catalog.js";
+import {
+  AlbumVisibilityConflictError,
+  AlbumVisibilityValidationError,
+} from "./received-image-store.js";
 import { selectSurfaceFromRequestAuthority } from "./surface-routing.js";
 
 const ALBUM_LOGIN_PATH = "/api/album/auth/login";
 const ALBUM_SIGN_OUT_PATH = "/api/album/auth/logout";
 const ALBUM_IMAGES_PATH = "/api/album/images";
+const ALBUM_CONVERSATIONS_PATH = "/api/album/conversations";
+const ALBUM_VISIBILITY_PATH = "/api/album/visibility";
 const ALBUM_AUTH_PATHS = new Set([ALBUM_LOGIN_PATH, ALBUM_SIGN_OUT_PATH]);
+const CONVERSATION_ID_PATTERN = /^[a-f0-9]{64}$/;
+const MAX_HIDDEN_CONVERSATIONS = 12_000;
 const ADMIN_DOCUMENTS = new Map([
   ["/", { file: "index.html", capability: "dashboard" }],
   ["/index.html", { file: "index.html", capability: "dashboard" }],
@@ -42,6 +50,8 @@ const ADMIN_API_METHODS = new Map([
   ["/api/session/cancel", new Set(["POST"])],
   ["/api/session/logout", new Set(["POST"])],
   ["/api/messages/send", new Set(["POST"])],
+  [ALBUM_CONVERSATIONS_PATH, new Set(["GET"])],
+  [ALBUM_VISIBILITY_PATH, new Set(["POST"])],
 ]);
 const ALBUM_API_METHODS = new Map([
   [ALBUM_LOGIN_PATH, new Set(["POST"])],
@@ -74,6 +84,7 @@ const MUTATING_PATHS = new Set([
   "/api/session/cancel",
   "/api/session/logout",
   "/api/messages/send",
+  ALBUM_VISIBILITY_PATH,
 ]);
 const LOGIN_PATH = "/api/auth/login";
 const SIGN_OUT_PATH = "/api/auth/logout";
@@ -252,6 +263,7 @@ export function createControlHandler({
   manager,
   mediaStore,
   albumCatalog,
+  albumVisibilityStore,
   dashboardAuth,
   albumAuth,
   distDirectory = "./dist",
@@ -403,6 +415,31 @@ export function createControlHandler({
       return createEventResponse(request, manager);
     }
 
+    if (request.method === "GET" && pathname === ALBUM_CONVERSATIONS_PATH) {
+      if (
+        typeof albumVisibilityStore?.getAlbumVisibility !== "function" ||
+        typeof albumVisibilityStore?.listApprovedConversations !== "function"
+      ) {
+        return errorResponse("Album visibility is unavailable.", 500);
+      }
+      try {
+        const [visibility, conversations] = await Promise.all([
+          albumVisibilityStore.getAlbumVisibility(),
+          albumVisibilityStore.listApprovedConversations(),
+        ]);
+        const hiddenConversationIds = new Set(visibility.hiddenConversationIds);
+        return jsonResponse({
+          revision: visibility.revision,
+          conversations: conversations.map((conversation) => ({
+            ...conversation,
+            visible: !hiddenConversationIds.has(conversation.conversationId),
+          })),
+        });
+      } catch {
+        return errorResponse("Album visibility is unavailable.", 500);
+      }
+    }
+
     if (request.method === "GET" && pathname === ALBUM_IMAGES_PATH) {
       if (typeof albumCatalog?.listPage !== "function") return errorResponse("Not found.", 404);
       try {
@@ -445,6 +482,64 @@ export function createControlHandler({
           "Cache-Control": "no-store",
         },
       });
+    }
+
+    if (request.method === "POST" && pathname === ALBUM_VISIBILITY_PATH) {
+      if (
+        typeof albumVisibilityStore?.saveAlbumVisibility !== "function" ||
+        typeof albumVisibilityStore?.listApprovedConversations !== "function"
+      ) {
+        return errorResponse("Album visibility is unavailable.", 500);
+      }
+
+      let body;
+      try {
+        body = await parseBody(request);
+      } catch (error) {
+        const status = Number.isInteger(error?.status) ? error.status : 400;
+        return errorResponse(
+          status === 415 ? "Send a same-origin JSON request." : error.message,
+          status,
+        );
+      }
+      if (
+        !body ||
+        typeof body !== "object" ||
+        Array.isArray(body) ||
+        Object.keys(body).length !== 2 ||
+        !Object.hasOwn(body, "revision") ||
+        !Object.hasOwn(body, "hiddenConversationIds") ||
+        !Number.isSafeInteger(body.revision) ||
+        body.revision < 0 ||
+        !Array.isArray(body.hiddenConversationIds) ||
+        body.hiddenConversationIds.length > MAX_HIDDEN_CONVERSATIONS ||
+        body.hiddenConversationIds.some(
+          (id) => typeof id !== "string" || !CONVERSATION_ID_PATTERN.test(id),
+        ) ||
+        new Set(body.hiddenConversationIds).size !== body.hiddenConversationIds.length
+      ) {
+        return errorResponse("The album visibility selection is invalid.", 400);
+      }
+
+      try {
+        const conversations = await albumVisibilityStore.listApprovedConversations();
+        const approvedConversationIds = new Set(
+          conversations.map(({ conversationId }) => conversationId),
+        );
+        if (body.hiddenConversationIds.some((id) => !approvedConversationIds.has(id))) {
+          return errorResponse("The album visibility selection is invalid.", 400);
+        }
+        const result = await albumVisibilityStore.saveAlbumVisibility(body);
+        return jsonResponse({ ok: true, revision: result.revision });
+      } catch (error) {
+        if (error instanceof AlbumVisibilityConflictError) {
+          return errorResponse("Album visibility changed in another dashboard tab.", 409);
+        }
+        if (error instanceof AlbumVisibilityValidationError) {
+          return errorResponse("The album visibility selection is invalid.", 400);
+        }
+        return errorResponse("Album visibility could not be saved.", 500);
+      }
     }
 
     if (pathname === "/api/media" || pathname.startsWith("/api/media/")) {

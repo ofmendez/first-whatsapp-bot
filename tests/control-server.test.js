@@ -57,6 +57,7 @@ function createPanel({
   manager = createManager(),
   mediaStore,
   albumCatalog,
+  albumVisibilityStore,
   distDirectory = "./dist",
   expectedOrigin = origin,
   panelOrigin,
@@ -70,6 +71,7 @@ function createPanel({
     manager,
     mediaStore,
     albumCatalog,
+    albumVisibilityStore,
     dashboardAuth: dashboardSessions,
     albumAuth,
     distDirectory,
@@ -623,6 +625,123 @@ test("album image APIs require the album capability and remain unavailable on ot
   }
 });
 
+test("album visibility management is authenticated, same-origin, and restricted to the admin host", async () => {
+  const conversationId = "a".repeat(64);
+  const albumVisibilityStore = {
+    getAlbumVisibility: mock(async () => ({
+      revision: 5,
+      hiddenConversationIds: [],
+    })),
+    listApprovedConversations: mock(async () => [
+      { conversationId, label: "Safe Contact", imageCount: 0 },
+    ]),
+    saveAlbumVisibility: mock(async ({ revision }) => ({ revision: revision + 1 })),
+  };
+  const albumAuth = createAlbumSessionService(albumPassphrase);
+  const panel = createPanel({
+    albumAuth,
+    albumVisibilityStore,
+    expectedOrigin: localAdminOrigin,
+    panelOrigin: localAdminOrigin,
+    albumOrigin: localAlbumOrigin,
+  });
+  const requestFor = (
+    selectedOrigin,
+    pathname,
+    { method = "GET", cookie, requestOrigin = selectedOrigin, body } = {},
+  ) =>
+    new Request(`${origin}${pathname}`, {
+      method,
+      headers: {
+        Host: new URL(selectedOrigin).host,
+        ...(cookie ? { Cookie: cookie } : {}),
+        ...(requestOrigin ? { Origin: requestOrigin, "Sec-Fetch-Site": "same-origin" } : {}),
+        ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
+    });
+
+  for (const [pathname, method] of [
+    ["/api/album/conversations", "GET"],
+    ["/api/album/visibility", "POST"],
+  ]) {
+    const albumHost = await panel.handler(
+      requestFor(localAlbumOrigin, pathname, {
+        method,
+        cookie: panel.cookie,
+        body: { revision: 5, hiddenConversationIds: [] },
+      }),
+    );
+    expect(albumHost.status).toBe(404);
+
+    const unauthorized = await panel.handler(
+      requestFor(localAdminOrigin, pathname, {
+        method,
+        body: { revision: 5, hiddenConversationIds: [] },
+      }),
+    );
+    expect(unauthorized.status).toBe(401);
+  }
+  expect(albumVisibilityStore.getAlbumVisibility).not.toHaveBeenCalled();
+  expect(albumVisibilityStore.listApprovedConversations).not.toHaveBeenCalled();
+  expect(albumVisibilityStore.saveAlbumVisibility).not.toHaveBeenCalled();
+
+  const crossOrigin = await panel.handler(
+    requestFor(localAdminOrigin, "/api/album/visibility", {
+      method: "POST",
+      cookie: panel.cookie,
+      requestOrigin: "https://attacker.example",
+      body: { revision: 5, hiddenConversationIds: [] },
+    }),
+  );
+  expect(crossOrigin.status).toBe(403);
+  expect(albumVisibilityStore.listApprovedConversations).not.toHaveBeenCalled();
+
+  const list = await panel.handler(
+    requestFor(localAdminOrigin, "/api/album/conversations", { cookie: panel.cookie }),
+  );
+  expect(list.status).toBe(200);
+  expect(await list.json()).toEqual({
+    revision: 5,
+    conversations: [{ conversationId, label: "Safe Contact", imageCount: 0, visible: true }],
+  });
+  expect(albumVisibilityStore.getAlbumVisibility).toHaveBeenCalledTimes(1);
+
+  const invalidShape = await panel.handler(
+    requestFor(localAdminOrigin, "/api/album/visibility", {
+      method: "POST",
+      cookie: panel.cookie,
+      body: { revision: 5, hiddenConversationIds: [], extra: true },
+    }),
+  );
+  expect(invalidShape.status).toBe(400);
+  expect(albumVisibilityStore.saveAlbumVisibility).not.toHaveBeenCalled();
+
+  const unknownConversation = await panel.handler(
+    requestFor(localAdminOrigin, "/api/album/visibility", {
+      method: "POST",
+      cookie: panel.cookie,
+      body: { revision: 5, hiddenConversationIds: ["b".repeat(64)] },
+    }),
+  );
+  expect(unknownConversation.status).toBe(400);
+  expect(albumVisibilityStore.saveAlbumVisibility).not.toHaveBeenCalled();
+
+  const saved = await panel.handler(
+    requestFor(localAdminOrigin, "/api/album/visibility", {
+      method: "POST",
+      cookie: panel.cookie,
+      body: { revision: 5, hiddenConversationIds: [conversationId] },
+    }),
+  );
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toEqual({ ok: true, revision: 6 });
+  expect(albumVisibilityStore.saveAlbumVisibility).toHaveBeenCalledWith({
+    revision: 5,
+    hiddenConversationIds: [conversationId],
+  });
+});
+
 test("album media remains approved-only and rechecks files after restart and between requests", async () => {
   const root = await mkdtemp(join(tmpdir(), "whatsapp-album-media-integration-"));
   try {
@@ -727,6 +846,117 @@ test("album media remains approved-only and rechecks files after restart and bet
     expect(invalidPagination.status).toBe(400);
     const repeatedPagination = await requestFor(panel, "/api/album/images?limit=24&limit=24");
     expect(repeatedPagination.status).toBe(400);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("visibility management saves while disconnected and gates listing and media on every request", async () => {
+  const root = await mkdtemp(join(tmpdir(), "album-visibility-api-integration-"));
+  try {
+    const store = new ReceivedImageStore({ root });
+    const accountJid = "owner@s.whatsapp.net";
+    const chatJid = "contact@s.whatsapp.net";
+    await store.approveConversation({ accountJid, chatJid, displayName: "Contact" });
+    const conversationId = store.getConversationIdentity(accountJid, chatJid).conversationId;
+    const imageBytes = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+      0x52,
+    ]);
+    const saved = await store.save({
+      accountJid,
+      chatJid,
+      displayName: "Contact",
+      messageId: "visibility-integration-image",
+      timestamp: "2026-11-12T12:00:00.000Z",
+      mimeType: "image/png",
+      stream: Readable.from([imageBytes]),
+    });
+    const albumCatalog = new AlbumImageCatalog({ store });
+    const albumAuth = createAlbumSessionService(albumPassphrase);
+    const albumToken = albumAuth.createSession();
+    const panel = createPanel({
+      albumAuth,
+      albumCatalog,
+      albumVisibilityStore: store,
+      expectedOrigin: localAdminOrigin,
+      panelOrigin: localAdminOrigin,
+      albumOrigin: localAlbumOrigin,
+    });
+    const requestAlbum = (pathname) =>
+      panel.handler(
+        new Request(`${origin}${pathname}`, {
+          headers: {
+            Host: new URL(localAlbumOrigin).host,
+            Cookie: albumCookie(albumToken),
+          },
+        }),
+      );
+    const requestAdmin = (pathname, body) =>
+      panel.handler(
+        new Request(`${origin}${pathname}`, {
+          method: body === undefined ? "GET" : "POST",
+          headers: {
+            Host: new URL(localAdminOrigin).host,
+            Cookie: panel.cookie,
+            ...(body === undefined
+              ? {}
+              : {
+                  Origin: localAdminOrigin,
+                  "Sec-Fetch-Site": "same-origin",
+                  "Content-Type": "application/json",
+                }),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        }),
+      );
+
+    expect(panel.manager.state.status).toBe("stopped");
+    const initialPage = await requestAlbum("/api/album/images");
+    expect((await initialPage.json()).items.map(({ id }) => id)).toEqual([saved.imageId]);
+    const initialMedia = await requestAlbum(`/api/album/media/${saved.imageId}`);
+    expect(initialMedia.status).toBe(200);
+    expect(new Uint8Array(await initialMedia.arrayBuffer())).toEqual(new Uint8Array(imageBytes));
+
+    const hiddenSave = await requestAdmin("/api/album/visibility", {
+      revision: 0,
+      hiddenConversationIds: [conversationId],
+    });
+    expect(hiddenSave.status).toBe(200);
+    expect(await hiddenSave.json()).toEqual({ ok: true, revision: 1 });
+    const hiddenConversationList = await requestAdmin("/api/album/conversations");
+    expect((await hiddenConversationList.json()).conversations).toEqual([
+      { conversationId, label: "Contact", imageCount: 1, visible: false },
+    ]);
+
+    const hiddenPage = await requestAlbum("/api/album/images");
+    expect((await hiddenPage.json()).items).toEqual([]);
+    const hiddenMedia = await requestAlbum(`/api/album/media/${saved.imageId}`);
+    expect(hiddenMedia.status).toBe(404);
+    expect(await hiddenMedia.text()).not.toContain("image/png");
+
+    const reenabledSave = await requestAdmin("/api/album/visibility", {
+      revision: 1,
+      hiddenConversationIds: [],
+    });
+    expect(reenabledSave.status).toBe(200);
+    expect(
+      (await (await requestAlbum("/api/album/images")).json()).items.map(({ id }) => id),
+    ).toEqual([saved.imageId]);
+    const reenabledMedia = await requestAlbum(`/api/album/media/${saved.imageId}`);
+    expect(reenabledMedia.status).toBe(200);
+    expect(new Uint8Array(await reenabledMedia.arrayBuffer())).toEqual(new Uint8Array(imageBytes));
+
+    await writeFile(join(root, "album-visibility.json"), "{malformed", { mode: 0o600 });
+    const unavailablePage = await requestAlbum("/api/album/images");
+    expect(unavailablePage.status).toBe(500);
+    expect(await unavailablePage.json()).toEqual({ error: "Album images are unavailable." });
+    expect((await requestAlbum(`/api/album/media/${saved.imageId}`)).status).toBe(404);
+    const unavailableManagement = await requestAdmin("/api/album/conversations");
+    expect(unavailableManagement.status).toBe(500);
+    expect(await unavailableManagement.json()).toEqual({
+      error: "Album visibility is unavailable.",
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -168,6 +168,7 @@ export class AlbumImageCatalog {
       !store ||
       typeof store.listConversationDirectories !== "function" ||
       typeof store.readAlbumApproval !== "function" ||
+      typeof store.getAlbumVisibility !== "function" ||
       typeof store.inspectImageMetadata !== "function" ||
       typeof store.ensureImageMetadata !== "function"
     ) {
@@ -289,12 +290,15 @@ export class AlbumImageCatalog {
   async listPage({ limit, cursor } = {}) {
     const pageLimit = parseLimit(limit);
     const key = cursor === undefined || cursor === null ? undefined : decodeCursor(cursor);
+    const visibility = await this.#store.getAlbumVisibility();
+    const hiddenConversationIds = new Set(visibility.hiddenConversationIds);
     if (!key) await this.refresh();
 
     const sorted = [...this.#records.values()].sort(sortDescending);
     const page = [];
     for (const record of sorted) {
       if (key && !isAfterCursor(record, key)) continue;
+      if (hiddenConversationIds.has(record.conversationId)) continue;
       const current = await this.#currentRecord(record);
       if (!current) {
         this.#records.delete(record.id);
@@ -319,9 +323,11 @@ export class AlbumImageCatalog {
 
   async openMedia(id) {
     if (typeof id !== "string" || !UUID_PATTERN.test(id)) return undefined;
+    const visibility = await this.#store.getAlbumVisibility();
+    const hiddenConversationIds = new Set(visibility.hiddenConversationIds);
     if (!this.#initialized) await this.refresh();
     const record = this.#records.get(id);
-    if (!record) return undefined;
+    if (!record || hiddenConversationIds.has(record.conversationId)) return undefined;
     const current = await this.#currentRecord(record);
     if (!current) {
       this.#records.delete(id);

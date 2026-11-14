@@ -1,0 +1,75 @@
+<section
+  class="mt-5 rounded-xl border border-line bg-panel"
+  aria-labelledby="album-visibility-heading"
+>
+  <div class="section-heading flex items-start justify-between gap-4.5 border-b border-[#d8e0e2] px-6 pt-5.75 pb-4.5 max-mobile:flex-wrap max-mobile:px-4.25 max-mobile:pt-5 max-mobile:pb-3.75">
+    <div>
+      <h2 id="album-visibility-heading">Album visibility</h2>
+      <p>Choose which approved conversations appear in the album.</p>
+    </div>
+    <p
+      class="album-visibility-count pt-1 text-right text-[10px] font-bold tracking-[.08em] text-muted max-mobile:w-full max-mobile:text-left"
+      id="album-visibility-count"
+    >
+      Loading approvals…
+    </p>
+  </div>
+
+  <div class="px-6 py-5 max-mobile:px-4.25 max-mobile:py-4">
+    <p class="mb-4 max-w-[78ch] text-xs leading-relaxed text-muted" id="album-visibility-help">
+      Hiding a conversation does not revoke its opt-in or delete saved images. New approvals stay
+      visible by default. Saved changes apply to the next album request; an already-open album may
+      need a reload.
+    </p>
+
+    <fieldset
+      class="min-w-0 border-0 p-0"
+      id="album-visibility-fieldset"
+      aria-describedby="album-visibility-help"
+      disabled
+    >
+      <legend class="sr-only">Choose which approved conversations appear in the album</legend>
+      <div class="grid gap-2.5 sm:grid-cols-2" id="album-visibility-list"></div>
+    </fieldset>
+
+    <div
+      class="rounded-md border border-[#d8e0e2] bg-[#f3f6f6] px-4 py-5 text-sm text-[#435963]"
+      id="album-visibility-empty"
+      hidden
+    >
+      <h3 class="mb-1 text-sm font-semibold">No approved conversations yet</h3>
+      <p class="m-0 text-xs leading-relaxed">
+        Conversations will appear here after they opt in, even before their first image is saved.
+      </p>
+    </div>
+
+    <div class="mt-4 flex flex-wrap items-center gap-3 border-t border-[#d8e0e2] pt-4 max-mobile:items-stretch">
+      <p
+        class="album-visibility-feedback min-h-5 flex-1 text-xs text-muted max-mobile:basis-full"
+        id="album-visibility-feedback"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-state="loading"
+      >
+        Loading saved visibility…
+      </p>
+      <button
+        class="button button-secondary inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[7px] border border-[#a8bac1] bg-[#f3f7f7] px-4 py-2.75 text-center text-sm font-[680] text-[#163746] transition-[background-color,border-color,transform] duration-140 hover:bg-[#eaf1f2] disabled:cursor-not-allowed disabled:opacity-[.52] motion-reduce:transition-none"
+        id="album-visibility-reload"
+        type="button"
+        hidden
+      >
+        Reload saved settings
+      </button>
+      <button
+        class="button button-primary inline-flex min-h-11 min-w-36 cursor-pointer items-center justify-center rounded-[7px] border border-transparent bg-brand px-4 py-2.75 text-center text-sm font-[680] text-white transition-[background-color,border-color,transform] duration-140 hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-[.52] motion-reduce:transition-none"
+        id="album-visibility-save"
+        type="button"
+        disabled
+      >
+        Save visibility
+      </button>
+    </div>
+  </div>
+</section>

@@ -165,6 +165,37 @@ proxied DNS record alone does not protect the VPS origin or rate-limit login.
 - An ordinary process restart is not logout. Local auth stays in `auth_info/`
   so the owner can deliberately start that account again.
 
+### Diagnosing failed pairing
+
+Run `bun run start` in a terminal after stopping the existing app/service, then
+choose **Start session** in the panel. If running under a service manager, view
+that service's logs instead of launching a second instance.
+
+Routine `[whatsapp]` diagnostics contain only fixed lifecycle labels and a
+sanitized numeric disconnect code. QR values, credentials, account identifiers,
+message content, and raw library errors are never included. The QR remains
+available only in the panel. Useful events:
+
+- `qr-issued` / `qr-refreshed`: a code was offered, not proof of a successful scan.
+- `pairing-accepted`: the library reported a new login; this is not yet a
+  connected session or confirmation that credentials were saved successfully.
+- `connection-open`: the session connected.
+- `connection-close`: includes the last observed stage, `statusCode`, and a
+  fixed reason. `515` means a connection restart is required; this app does not
+  reconnect automatically, so choose **Start session** again to resume using
+  saved credentials. `401` means logged out or rejected, not QR expiration.
+  `408` means connection loss or timeout. Unknown codes do not imply a cause.
+- `credentials-save-failed`: at least one credential write failed. Stop the
+  app and check service-account write permissions and available disk space
+  before retrying. Do not share files from `auth_info/`.
+- `session-start-failed`: local auth loading or socket creation failed; no raw
+  error is logged.
+
+Share only the `[whatsapp]` diagnostic sequence when investigating a failed
+attempt. These events cannot by themselves prove an upstream protocol bug.
+Do not repeatedly delete credentials or extend QR lifetimes as a substitute
+for identifying the failure.
+
 ## Live messages and sending
 
 The panel displays new direct-chat text events emitted during the current

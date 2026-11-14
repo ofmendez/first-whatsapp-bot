@@ -28,6 +28,11 @@ const ALBUM_RECORD_VERSION = 1;
 const IMAGE_METADATA_VERSION = 1;
 const MAX_IMAGE_METADATA_BYTES = 64 * 1024;
 const MAX_CAPTION_LENGTH = 16_384;
+const ALBUM_VISIBILITY_FILENAME = "album-visibility.json";
+const ALBUM_VISIBILITY_VERSION = 1;
+const MAX_ALBUM_VISIBILITY_BYTES = 1024 * 1024;
+const MAX_HIDDEN_CONVERSATIONS = 12_000;
+const CONVERSATION_ID_PATTERN = /^[a-f0-9]{64}$/;
 const IMAGE_METADATA_FIELDS = new Set([
   "version",
   "id",
@@ -46,7 +51,9 @@ const ALBUM_RECORD_FIELDS = new Set([
   "approvedAt",
   "confirmationAttemptReserved",
   "confirmationAttemptReservedAt",
+  "displayName",
 ]);
+const ALBUM_VISIBILITY_FIELDS = new Set(["version", "revision", "hiddenConversationIds"]);
 
 function digest(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -105,6 +112,76 @@ function safeName(value) {
   return sanitized || "unknown-contact";
 }
 
+function safeDisplayName(value) {
+  if (typeof value !== "string") return undefined;
+  const label = value
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N} ._'-]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 48)
+    .trim();
+  return label || undefined;
+}
+
+function validateAlbumVisibility(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== ALBUM_VISIBILITY_FIELDS.size ||
+    Object.keys(value).some((key) => !ALBUM_VISIBILITY_FIELDS.has(key)) ||
+    value.version !== ALBUM_VISIBILITY_VERSION ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 0 ||
+    !Array.isArray(value.hiddenConversationIds) ||
+    value.hiddenConversationIds.length > MAX_HIDDEN_CONVERSATIONS
+  ) {
+    return undefined;
+  }
+
+  const hiddenConversationIds = new Set();
+  for (const id of value.hiddenConversationIds) {
+    if (
+      typeof id !== "string" ||
+      !CONVERSATION_ID_PATTERN.test(id) ||
+      hiddenConversationIds.has(id)
+    ) {
+      return undefined;
+    }
+    hiddenConversationIds.add(id);
+  }
+
+  return {
+    version: value.version,
+    revision: value.revision,
+    hiddenConversationIds: [...hiddenConversationIds],
+  };
+}
+
+export class AlbumVisibilityUnavailableError extends Error {
+  constructor() {
+    super("Album visibility is unavailable.");
+    this.name = "AlbumVisibilityUnavailableError";
+  }
+}
+
+export class AlbumVisibilityConflictError extends Error {
+  constructor() {
+    super("Album visibility changed in another dashboard tab.");
+    this.name = "AlbumVisibilityConflictError";
+    this.status = 409;
+  }
+}
+
+export class AlbumVisibilityValidationError extends Error {
+  constructor() {
+    super("The album visibility selection is invalid.");
+    this.name = "AlbumVisibilityValidationError";
+    this.status = 400;
+  }
+}
+
 function folderPrefix(accountJid, chatJid) {
   return `account-${safeJidPart(accountJid)}-${digest(accountJid).slice(0, 12)}--chat-${safeJidPart(chatJid)}-${digest(chatJid).slice(0, 12)}--`;
 }
@@ -133,6 +210,7 @@ export class ReceivedImageStore {
   #savedMessages = new Map();
   #approvalLocks = new Map();
   #metadataLocks = new Map();
+  #visibilityLock = Promise.resolve();
 
   constructor({
     root = "./received-images/",
@@ -222,6 +300,132 @@ export class ReceivedImageStore {
     return directories.sort();
   }
 
+  async #readAlbumVisibilityConfiguration() {
+    const configurationPath = resolve(this.#root, ALBUM_VISIBILITY_FILENAME);
+    let metadata;
+    try {
+      metadata = await lstat(configurationPath);
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        return {
+          version: ALBUM_VISIBILITY_VERSION,
+          revision: 0,
+          hiddenConversationIds: [],
+        };
+      }
+      throw new AlbumVisibilityUnavailableError();
+    }
+
+    if (
+      !metadata.isFile() ||
+      metadata.isSymbolicLink() ||
+      metadata.size > MAX_ALBUM_VISIBILITY_BYTES
+    ) {
+      throw new AlbumVisibilityUnavailableError();
+    }
+
+    try {
+      const root = await realpath(this.#root);
+      const realConfiguration = await realpath(configurationPath);
+      if (
+        dirname(realConfiguration) !== root ||
+        basename(realConfiguration) !== ALBUM_VISIBILITY_FILENAME
+      ) {
+        throw new AlbumVisibilityUnavailableError();
+      }
+      const contents = await readFile(realConfiguration, "utf8");
+      if (Buffer.byteLength(contents, "utf8") > MAX_ALBUM_VISIBILITY_BYTES) {
+        throw new AlbumVisibilityUnavailableError();
+      }
+      const configuration = validateAlbumVisibility(JSON.parse(contents));
+      if (!configuration) throw new AlbumVisibilityUnavailableError();
+      return configuration;
+    } catch (error) {
+      if (error instanceof AlbumVisibilityUnavailableError) throw error;
+      throw new AlbumVisibilityUnavailableError();
+    }
+  }
+
+  async getAlbumVisibility() {
+    const configuration = await this.#readAlbumVisibilityConfiguration();
+    return {
+      revision: configuration.revision,
+      hiddenConversationIds: [...configuration.hiddenConversationIds],
+    };
+  }
+
+  async #withVisibilityLock(operation) {
+    const previous = this.#visibilityLock;
+    let release;
+    this.#visibilityLock = new Promise((resolvePromise) => {
+      release = resolvePromise;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
+  async #writeAlbumVisibilityConfiguration(configuration) {
+    const configurationPath = resolve(this.#root, ALBUM_VISIBILITY_FILENAME);
+    const temporaryPath = resolve(this.#root, `.album-visibility.${randomUUID()}.tmp`);
+    try {
+      await mkdir(this.#root, { recursive: true });
+      await this.#writeMetadataFile(temporaryPath, `${JSON.stringify(configuration, null, 2)}\n`, {
+        flag: "wx",
+        mode: 0o600,
+      });
+      await this.#renameMetadataFile(temporaryPath, configurationPath);
+    } catch {
+      await rm(temporaryPath, { force: true }).catch(() => {});
+      throw new AlbumVisibilityUnavailableError();
+    }
+  }
+
+  async saveAlbumVisibility({ revision, hiddenConversationIds } = {}) {
+    if (
+      !Number.isSafeInteger(revision) ||
+      revision < 0 ||
+      !Array.isArray(hiddenConversationIds) ||
+      hiddenConversationIds.length > MAX_HIDDEN_CONVERSATIONS
+    ) {
+      throw new AlbumVisibilityValidationError();
+    }
+
+    const hiddenIds = new Set();
+    for (const id of hiddenConversationIds) {
+      if (typeof id !== "string" || !CONVERSATION_ID_PATTERN.test(id) || hiddenIds.has(id)) {
+        throw new AlbumVisibilityValidationError();
+      }
+      hiddenIds.add(id);
+    }
+
+    return this.#withVisibilityLock(async () => {
+      const previous = await this.#readAlbumVisibilityConfiguration();
+      if (revision !== previous.revision) throw new AlbumVisibilityConflictError();
+
+      const approvedConversationIds = new Set(
+        (await this.listApprovedConversations()).map(({ conversationId }) => conversationId),
+      );
+      if ([...hiddenIds].some((id) => !approvedConversationIds.has(id))) {
+        throw new AlbumVisibilityValidationError();
+      }
+      if (revision === Number.MAX_SAFE_INTEGER) {
+        throw new AlbumVisibilityUnavailableError();
+      }
+
+      const configuration = {
+        version: ALBUM_VISIBILITY_VERSION,
+        revision: revision + 1,
+        hiddenConversationIds: [...hiddenIds].sort(),
+      };
+      await this.#writeAlbumVisibilityConfiguration(configuration);
+      return { revision: configuration.revision };
+    });
+  }
+
   async #withApprovalLock(identity, operation) {
     const previous = this.#approvalLocks.get(identity) ?? Promise.resolve();
     let release;
@@ -281,6 +485,11 @@ export class ReceivedImageStore {
       const hasNoReservation =
         record.confirmationAttemptReserved === false &&
         record.confirmationAttemptReservedAt === null;
+      const hasSafeDisplayName =
+        record.displayName === undefined ||
+        (typeof record.displayName === "string" &&
+          record.displayName.length <= 48 &&
+          safeDisplayName(record.displayName) === record.displayName);
       const valid =
         record.version === ALBUM_RECORD_VERSION &&
         record.accountJid === identity.accountJid &&
@@ -289,6 +498,7 @@ export class ReceivedImageStore {
         typeof record.albumed === "boolean" &&
         validIsoDate(record.approvedAt) &&
         (hasReservation || hasNoReservation) &&
+        hasSafeDisplayName &&
         basename(realDirectory).startsWith(folderPrefix(identity.accountJid, identity.chatJid));
       return valid
         ? {
@@ -311,6 +521,63 @@ export class ReceivedImageStore {
       approvedAt: status.record.approvedAt,
       directory: status.directory,
     };
+  }
+
+  async listApprovedConversations() {
+    const conversations = [];
+    const directories = await this.listConversationDirectories();
+    for (const directory of directories) {
+      const approval = await this.#readAlbumRecord(directory);
+      if (!approval.valid || !approval.record.albumed) continue;
+
+      let entries;
+      try {
+        entries = await readdir(directory, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      let imageCount = 0;
+      for (const entry of entries) {
+        if (!entry.isFile() || entry.isSymbolicLink() || !IMAGE_FILENAME_PATTERN.test(entry.name)) {
+          continue;
+        }
+        const image = await this.#loadImageMetadata(directory, entry.name);
+        if (image.status === "valid" || image.status === "missing") imageCount += 1;
+      }
+
+      const prefix = folderPrefix(approval.record.accountJid, approval.record.chatJid);
+      const folderLabel = basename(directory).slice(prefix.length);
+      const label =
+        safeDisplayName(approval.record.displayName) ??
+        (safeDisplayName(folderLabel) && folderLabel !== "unknown-contact"
+          ? safeDisplayName(folderLabel)
+          : "Approved conversation");
+      conversations.push({
+        conversationId: approval.record.conversationId,
+        label,
+        imageCount,
+      });
+    }
+
+    const labelCounts = new Map();
+    for (const conversation of conversations) {
+      const key = conversation.label.toLocaleLowerCase();
+      labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
+    }
+
+    return conversations
+      .map((conversation) => ({
+        ...conversation,
+        ...(labelCounts.get(conversation.label.toLocaleLowerCase()) > 1
+          ? { label: `${conversation.label} · ${conversation.conversationId.slice(0, 6)}` }
+          : {}),
+      }))
+      .sort(
+        (left, right) =>
+          left.label.localeCompare(right.label) ||
+          left.conversationId.localeCompare(right.conversationId),
+      );
   }
 
   async approveConversation({ accountJid, chatJid, displayName }) {
@@ -345,6 +612,7 @@ export class ReceivedImageStore {
         confirmationAttemptReservedAt: confirmationAttemptReserved
           ? previous.record.confirmationAttemptReservedAt
           : now,
+        displayName: safeDisplayName(displayName) ?? "Approved conversation",
       };
       const markerPath = resolve(directory, "album.json");
       const temporary = resolve(directory, `.album.${randomUUID()}.tmp`);
