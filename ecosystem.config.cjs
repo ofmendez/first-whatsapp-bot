@@ -10,7 +10,7 @@ module.exports = {
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
-      watch: false,
+      watch: true,
 
       env: {
         NODE_ENV: "production",

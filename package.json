@@ -5,7 +5,6 @@
   "private": true,
   "scripts": {
     "start": "bun run build && bun run index.js",
-    "start:prod": "bun run index.js",
     "preview:local": "bun run scripts/local-preview-proxy.js",
     "build": "astro build",
     "lint": "oxlint --config .oxlintrc.json index.js \"src/**/*.js\" \"src/**/*.astro\" \"tests/**/*.js\" \"scripts/**/*.js\"",
