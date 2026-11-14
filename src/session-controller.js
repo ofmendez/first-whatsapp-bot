@@ -1,4 +1,4 @@
-import { MessageFeed, projectLiveMessages } from "@/src/message-feed.js";
+import { MessageFeed, normalizeJid, projectLiveMessageEntries } from "@/src/message-feed.js";
 
 const STARTABLE_STATES = new Set(["stopped", "disconnected", "logged-out"]);
 const REVIEW_MESSAGE =
@@ -28,11 +28,17 @@ export class SessionController {
   #qr = null;
   #reviewMessage = null;
   #selfChatValidation;
+  #albumService;
+  #albumCatalog;
+  #onAlbumApproved;
 
   constructor({
     createSession,
     clearAuth = async () => {},
     imageReceiver,
+    albumService,
+    albumCatalog,
+    onAlbumApproved,
     messageLimit = 200,
     selfChatValidation = "not-run",
   }) {
@@ -42,6 +48,9 @@ export class SessionController {
     this.#createSession = createSession;
     this.#clearAuth = clearAuth;
     this.#imageReceiver = imageReceiver;
+    this.#albumService = albumService;
+    this.#albumCatalog = albumCatalog;
+    this.#onAlbumApproved = onAlbumApproved;
     this.#feed = new MessageFeed(messageLimit);
     this.#selfChatValidation = [
       "not-run",
@@ -126,17 +135,58 @@ export class SessionController {
             }
           },
           onClose: (details) => this.#receiveClose(attempt, details),
+          albumService: this.#albumService,
+          onAlbumApproved: (approval) => {
+            if (attempt !== this.#attempt || this.#status !== "connected") return;
+            const marked = this.#feed.markConversationAlbumed(approval?.conversationId);
+            if (marked.length > 0) this.#publishState();
+            try {
+              const update = this.#onAlbumApproved?.(approval);
+              if (update && typeof update.catch === "function") void update.catch(() => {});
+            } catch {
+              // Approval is durable even if a transient dashboard update fails.
+            }
+          },
           onUpsert: (upsert, selfJids) => {
             if (attempt !== this.#attempt || this.#status !== "connected") return;
-            for (const message of projectLiveMessages(upsert, selfJids)) {
-              const appended = this.#feed.append(message);
+            const accountJid = normalizeJid(selfJids?.[0]);
+            for (const { message, chatJid } of projectLiveMessageEntries(upsert, selfJids)) {
+              let activityMetadata = {};
+              try {
+                const conversationId = this.#albumService?.getConversationIdentity?.(
+                  accountJid,
+                  chatJid,
+                )?.conversationId;
+                if (typeof conversationId === "string") {
+                  activityMetadata = {
+                    conversationId,
+                    albumed: Boolean(this.#albumCatalog?.isConversationApproved?.(conversationId)),
+                  };
+                }
+              } catch {
+                // Event visibility does not depend on optional album metadata.
+              }
+              const appended = this.#feed.append({ ...message, ...activityMetadata });
               this.#publish({ type: "message", message: appended });
             }
             if (this.#imageReceiver) {
               void this.#imageReceiver
                 .receive(upsert, selfJids, (image) => {
                   if (attempt !== this.#attempt || this.#status !== "connected") return;
-                  const appended = this.#feed.append(image);
+                  let activityImage = image;
+                  if (typeof image.conversationId === "string") {
+                    try {
+                      activityImage = {
+                        ...image,
+                        albumed: Boolean(
+                          this.#albumCatalog?.isConversationApproved?.(image.conversationId),
+                        ),
+                      };
+                    } catch {
+                      // An optional filter lookup must not affect image activity.
+                    }
+                  }
+                  const appended = this.#feed.append(activityImage);
                   this.#publish({ type: "message", message: appended });
                 })
                 .catch(() => {});

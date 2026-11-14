@@ -1,0 +1,20 @@
+---
+import AlbumGallery from "@/src/components/album/AlbumGallery.astro";
+import AlbumMasthead from "@/src/components/album/AlbumMasthead.astro";
+import AlbumLayout from "@/src/layouts/AlbumLayout.astro";
+---
+
+<AlbumLayout>
+  <div class="album-shell">
+    <div class="album-shell__inner">
+      <AlbumMasthead />
+      <main class="album-main" id="album-inicio">
+        <AlbumGallery />
+      </main>
+      <footer class="album-footer">
+        <span class="album-footer__rule" aria-hidden="true"></span>
+        <a href="#album-inicio">Volver al inicio</a>
+      </footer>
+    </div>
+  </div>
+</AlbumLayout>

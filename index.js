@@ -1,7 +1,14 @@
 import { rm } from "node:fs/promises";
+import { AlbumImageCatalog } from "@/src/album-catalog.js";
 import { ImageReceiver } from "@/src/image-receiver.js";
 import { ReceivedImageStore } from "@/src/received-image-store.js";
 import { createControlHandler } from "@/src/control-server.js";
+import {
+  createAlbumSessionService,
+  createDashboardSessionService,
+  DashboardConfigurationError,
+  readDashboardConfig,
+} from "@/src/dashboard-auth.js";
 import { SessionController } from "@/src/session-controller.js";
 import { createWhatsAppSession, downloadImageStream } from "@/src/whatsapp.js";
 
@@ -14,12 +21,32 @@ function panelPort(value) {
 }
 
 export async function startControlPanel() {
+  const configuration = readDashboardConfig();
+  const dashboardAuth = createDashboardSessionService(configuration.dashboardPassphrase);
+  const albumAuth = configuration.albumOrigin
+    ? createAlbumSessionService(configuration.albumPassphrase)
+    : undefined;
   const imageStore = new ReceivedImageStore({ root: "./received-images/" });
-  const imageReceiver = new ImageReceiver({ store: imageStore, download: downloadImageStream });
+  const albumCatalog = new AlbumImageCatalog({ store: imageStore });
+  await albumCatalog.refresh();
+  const imageReceiver = new ImageReceiver({
+    store: imageStore,
+    download: downloadImageStream,
+    onSaved: () => albumCatalog.notifyChanged(),
+    isConversationApproved: (conversationId) => albumCatalog.isConversationApproved(conversationId),
+  });
   const manager = new SessionController({
     createSession: createWhatsAppSession,
     clearAuth: () => rm("./auth_info", { recursive: true, force: true }),
     imageReceiver,
+    albumService: imageStore,
+    albumCatalog,
+    onAlbumApproved: ({ conversationId }) => {
+      albumCatalog.markConversationApproved(conversationId);
+      return albumCatalog.notifyChanged().then(() => {
+        albumCatalog.markConversationApproved(conversationId);
+      });
+    },
     selfChatValidation: process.env.WHATSAPP_SELF_CHAT_VALIDATION ?? "not-run",
   });
 
@@ -27,8 +54,13 @@ export async function startControlPanel() {
   const handle = createControlHandler({
     manager,
     mediaStore: imageStore,
+    dashboardAuth,
+    albumAuth,
+    albumCatalog,
     distDirectory: "./dist",
-    expectedOrigin: () => `http://127.0.0.1:${server.port}`,
+    expectedOrigin: () => configuration.panelOrigin ?? `http://127.0.0.1:${server.port}`,
+    panelOrigin: configuration.panelOrigin,
+    albumOrigin: configuration.albumOrigin,
   });
 
   server = Bun.serve({
@@ -61,8 +93,11 @@ if (import.meta.main) {
       console.error(
         `Control panel port ${port} is already in use. Set PANEL_PORT to another local port.`,
       );
-      return;
+    } else if (error instanceof DashboardConfigurationError) {
+      console.error(error.message);
+    } else {
+      console.error("Control panel startup failed");
     }
-    console.error("Control panel startup failed");
+    process.exitCode = 1;
   });
 }

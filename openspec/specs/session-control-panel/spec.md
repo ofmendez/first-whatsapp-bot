@@ -4,15 +4,27 @@
 TBD - created by archiving change astro-session-control-panel. Update Purpose after archive.
 ## Requirements
 ### Requirement: Local owner-only control panel
-The system SHALL serve the Astro control panel and its state-changing control API from the same application process and bind them to loopback by default. The API SHALL reject cross-origin state-changing requests and SHALL NOT enable wildcard CORS. Remote VPS operation SHALL use an owner-controlled local tunnel rather than a public listener.
+The system SHALL serve the Astro control panel and its state-changing control API from the same application process and bind the Bun listener to loopback by default. The system SHALL require a valid dashboard-authorized session before serving the dashboard, session state, live events, saved-image previews, or control actions. The API SHALL reject cross-origin state-changing requests, SHALL NOT enable wildcard CORS, and SHALL validate browser requests against the configured public HTTPS origin when used behind a trusted reverse proxy. When a separate album origin is enabled, dashboard documents and APIs SHALL be available only through the selected admin surface; album authentication SHALL NOT grant dashboard permissions. Remote VPS operation SHALL keep the Bun listener private behind HTTPS at the proxy; direct public access to the Bun port SHALL NOT be permitted.
 
-#### Scenario: Owner opens the local panel
-- **WHEN** the owner opens the panel through the local interface or an SSH tunnel
-- **THEN** the panel can read session state and submit protected control actions to the same application origin
+#### Scenario: Owner opens the panel
+- **WHEN** the owner opens the panel through the local interface or a trusted HTTPS reverse proxy and authenticates with the dashboard passphrase
+- **THEN** the panel can read session state and submit protected control actions to the same public origin
+
+#### Scenario: Unauthenticated owner opens the panel
+- **WHEN** the owner opens the dashboard without a valid dashboard session
+- **THEN** the application displays the login page and exposes no session state, live events, saved-image bytes, or WhatsApp control actions
 
 #### Scenario: Remote or cross-origin control request
-- **WHEN** a request attempts to control the session from a non-loopback interface or an untrusted origin
+- **WHEN** a request attempts to control the session from an untrusted origin or bypasses the configured HTTPS proxy
 - **THEN** the server rejects the request and performs no WhatsApp action
+
+#### Scenario: Owner operates dashboard alongside album
+- **WHEN** the album is enabled and the owner authenticates on the configured admin host
+- **THEN** the existing dashboard controls, live activity, and saved-image previews remain available without sharing permissions with the album
+
+#### Scenario: Album visitor attempts dashboard control
+- **WHEN** an album-authorized visitor requests a dashboard control endpoint through the album host or presents only an album token on the admin host
+- **THEN** the request is denied before any WhatsApp action, state read, event subscription, or media access
 
 ### Requirement: Explicit single-session lifecycle
 The control application SHALL start without opening a WhatsApp socket. The system SHALL create at most one socket when the owner explicitly starts a session, SHALL expose the current lifecycle state in the panel, and SHALL NOT automatically create a replacement socket after an unexpected connection closure.
@@ -99,4 +111,3 @@ The panel SHALL describe the controls as local safeguards against accidental exp
 #### Scenario: Owner views risk information
 - **WHEN** the owner views the panel's session or safety information
 - **THEN** the panel does not present the unofficial integration as restriction-proof or officially approved
-

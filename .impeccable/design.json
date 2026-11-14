@@ -1,74 +1,459 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-12T15:48:48-05:00",
+  "generatedAt": "2026-11-14T04:54:13Z",
   "title": "Design System: WhatsApp Session Control",
   "extensions": {
     "colorMeta": {
-      "primary": { "role": "primary", "displayName": "Control Teal", "canonical": "#14566c" },
-      "primary-hover": { "role": "primary", "displayName": "Control Teal Hover", "canonical": "#0e4457" },
-      "white": { "role": "neutral", "displayName": "Control White", "canonical": "#fff" },
-      "page-canvas": { "role": "neutral", "displayName": "Cool Canvas", "canonical": "#e9eef0" },
-      "ink": { "role": "neutral", "displayName": "Blue-Gray Ink", "canonical": "#102b3a" },
-      "panel": { "role": "neutral", "displayName": "Panel White", "canonical": "#fbfcfb" },
-      "status-panel": { "role": "neutral", "displayName": "Readout White", "canonical": "#f8faf9" },
-      "form-panel": { "role": "neutral", "displayName": "Composer Gray", "canonical": "#f4f7f7" },
-      "secondary-control": { "role": "neutral", "displayName": "Secondary Control Fill", "canonical": "#f3f7f7" },
-      "masthead-text": { "role": "neutral", "displayName": "Masthead Text", "canonical": "#f3f7f8" },
-      "text-muted": { "role": "neutral", "displayName": "Quiet Copy", "canonical": "#526771" },
-      "border": { "role": "neutral", "displayName": "Structural Border", "canonical": "#cad5d8" },
-      "divider": { "role": "neutral", "displayName": "Divider", "canonical": "#d8e0e2" },
-      "secondary-text": { "role": "neutral", "displayName": "Secondary Control Text", "canonical": "#163746" },
-      "secondary-border": { "role": "neutral", "displayName": "Secondary Control Border", "canonical": "#a8bac1" },
-      "disabled-field": { "role": "neutral", "displayName": "Disabled Field", "canonical": "#e9eeee" },
-      "field-border": { "role": "neutral", "displayName": "Field Border", "canonical": "#aebdc1" },
-      "danger-bg": { "role": "tertiary", "displayName": "Danger Surface", "canonical": "#fff7f5" },
-      "danger-text": { "role": "tertiary", "displayName": "Danger Text", "canonical": "#7c2a22" },
-      "danger-border": { "role": "tertiary", "displayName": "Danger Border", "canonical": "#d7a6a0" },
-      "state-idle": { "role": "neutral", "displayName": "Idle State", "canonical": "#647781" },
-      "state-connected": { "role": "secondary", "displayName": "Connected Green", "canonical": "#167143" },
-      "state-pending": { "role": "tertiary", "displayName": "Pending Amber", "canonical": "#a74d00" },
-      "state-review": { "role": "tertiary", "displayName": "Review Red", "canonical": "#a02f26" },
-      "local-indicator": { "role": "secondary", "displayName": "Local Indicator Green", "canonical": "#8fe0b0" },
-      "status-halo-idle": { "role": "neutral", "displayName": "Idle Halo", "canonical": "#e2e8e9" },
-      "status-halo-connected": { "role": "secondary", "displayName": "Connected Halo", "canonical": "#d9efe2" },
-      "status-halo-pending": { "role": "tertiary", "displayName": "Pending Halo", "canonical": "#f9e5d2" },
-      "status-halo-review": { "role": "tertiary", "displayName": "Review Halo", "canonical": "#f5ddda" },
-      "alert-bg": { "role": "tertiary", "displayName": "Caution Paper", "canonical": "#fff8e6" },
-      "alert-border": { "role": "tertiary", "displayName": "Caution Border", "canonical": "#d6c18b" },
-      "alert-text": { "role": "tertiary", "displayName": "Caution Text", "canonical": "#493b21" },
-      "alert-heading": { "role": "tertiary", "displayName": "Caution Heading", "canonical": "#3f3219" },
-      "alert-copy": { "role": "tertiary", "displayName": "Caution Copy", "canonical": "#4d4128" },
-      "alert-icon": { "role": "tertiary", "displayName": "Caution Symbol", "canonical": "#7d4500" },
-      "alert-icon-border": { "role": "tertiary", "displayName": "Caution Symbol Border", "canonical": "#9b5a0b" },
-      "event-new-bg": { "role": "tertiary", "displayName": "Newest Event Tint", "canonical": "#fff5d6" },
-      "event-new-label-bg": { "role": "tertiary", "displayName": "New Badge Fill", "canonical": "#f5df9e" },
-      "event-new-label-text": { "role": "tertiary", "displayName": "New Badge Text", "canonical": "#714000" },
-      "connection-update-text": { "role": "tertiary", "displayName": "Updated Marker Text", "canonical": "#754000" },
-      "brand-mark": { "role": "secondary", "displayName": "Wordmark Glyph Accent", "canonical": "#ffcf58" },
-      "selection": { "role": "tertiary", "displayName": "Text Selection", "canonical": "#ffe08a" }
+      "primary": {
+        "role": "primary",
+        "displayName": "Control Teal",
+        "canonical": "#14566c"
+      },
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "Control Teal Hover",
+        "canonical": "#0e4457"
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "Control White",
+        "canonical": "#fff"
+      },
+      "page-canvas": {
+        "role": "neutral",
+        "displayName": "Cool Canvas",
+        "canonical": "#e9eef0"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Blue-Gray Ink",
+        "canonical": "#102b3a"
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel White",
+        "canonical": "#fbfcfb"
+      },
+      "status-panel": {
+        "role": "neutral",
+        "displayName": "Readout White",
+        "canonical": "#f8faf9"
+      },
+      "form-panel": {
+        "role": "neutral",
+        "displayName": "Composer Gray",
+        "canonical": "#f4f7f7"
+      },
+      "secondary-control": {
+        "role": "neutral",
+        "displayName": "Secondary Control Fill",
+        "canonical": "#f3f7f7"
+      },
+      "masthead-text": {
+        "role": "neutral",
+        "displayName": "Masthead Text",
+        "canonical": "#f3f7f8"
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Quiet Copy",
+        "canonical": "#526771"
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Structural Border",
+        "canonical": "#cad5d8"
+      },
+      "divider": {
+        "role": "neutral",
+        "displayName": "Divider",
+        "canonical": "#d8e0e2"
+      },
+      "secondary-text": {
+        "role": "neutral",
+        "displayName": "Secondary Control Text",
+        "canonical": "#163746"
+      },
+      "secondary-border": {
+        "role": "neutral",
+        "displayName": "Secondary Control Border",
+        "canonical": "#a8bac1"
+      },
+      "disabled-field": {
+        "role": "neutral",
+        "displayName": "Disabled Field",
+        "canonical": "#e9eeee"
+      },
+      "field-border": {
+        "role": "neutral",
+        "displayName": "Field Border",
+        "canonical": "#aebdc1"
+      },
+      "danger-bg": {
+        "role": "tertiary",
+        "displayName": "Danger Surface",
+        "canonical": "#fff7f5"
+      },
+      "danger-text": {
+        "role": "tertiary",
+        "displayName": "Danger Text",
+        "canonical": "#7c2a22"
+      },
+      "danger-border": {
+        "role": "tertiary",
+        "displayName": "Danger Border",
+        "canonical": "#d7a6a0"
+      },
+      "state-idle": {
+        "role": "neutral",
+        "displayName": "Idle State",
+        "canonical": "#647781"
+      },
+      "state-connected": {
+        "role": "secondary",
+        "displayName": "Connected Green",
+        "canonical": "#167143"
+      },
+      "state-pending": {
+        "role": "tertiary",
+        "displayName": "Pending Amber",
+        "canonical": "#a74d00"
+      },
+      "state-review": {
+        "role": "tertiary",
+        "displayName": "Review Red",
+        "canonical": "#a02f26"
+      },
+      "local-indicator": {
+        "role": "secondary",
+        "displayName": "Local Indicator Green",
+        "canonical": "#8fe0b0"
+      },
+      "status-halo-idle": {
+        "role": "neutral",
+        "displayName": "Idle Halo",
+        "canonical": "#e2e8e9"
+      },
+      "status-halo-connected": {
+        "role": "secondary",
+        "displayName": "Connected Halo",
+        "canonical": "#d9efe2"
+      },
+      "status-halo-pending": {
+        "role": "tertiary",
+        "displayName": "Pending Halo",
+        "canonical": "#f9e5d2"
+      },
+      "status-halo-review": {
+        "role": "tertiary",
+        "displayName": "Review Halo",
+        "canonical": "#f5ddda"
+      },
+      "alert-bg": {
+        "role": "tertiary",
+        "displayName": "Caution Paper",
+        "canonical": "#fff8e6"
+      },
+      "alert-border": {
+        "role": "tertiary",
+        "displayName": "Caution Border",
+        "canonical": "#d6c18b"
+      },
+      "alert-text": {
+        "role": "tertiary",
+        "displayName": "Caution Text",
+        "canonical": "#493b21"
+      },
+      "alert-heading": {
+        "role": "tertiary",
+        "displayName": "Caution Heading",
+        "canonical": "#3f3219"
+      },
+      "alert-copy": {
+        "role": "tertiary",
+        "displayName": "Caution Copy",
+        "canonical": "#4d4128"
+      },
+      "alert-icon": {
+        "role": "tertiary",
+        "displayName": "Caution Symbol",
+        "canonical": "#7d4500"
+      },
+      "alert-icon-border": {
+        "role": "tertiary",
+        "displayName": "Caution Symbol Border",
+        "canonical": "#9b5a0b"
+      },
+      "event-new-bg": {
+        "role": "tertiary",
+        "displayName": "Newest Event Tint",
+        "canonical": "#fff5d6"
+      },
+      "event-new-label-bg": {
+        "role": "tertiary",
+        "displayName": "New Badge Fill",
+        "canonical": "#f5df9e"
+      },
+      "event-new-label-text": {
+        "role": "tertiary",
+        "displayName": "New Badge Text",
+        "canonical": "#714000"
+      },
+      "connection-update-text": {
+        "role": "tertiary",
+        "displayName": "Updated Marker Text",
+        "canonical": "#754000"
+      },
+      "brand-mark": {
+        "role": "secondary",
+        "displayName": "Wordmark Glyph Accent",
+        "canonical": "#ffcf58"
+      },
+      "selection": {
+        "role": "tertiary",
+        "displayName": "Text Selection",
+        "canonical": "#ffe08a"
+      },
+      "album-bg": {
+        "role": "neutral",
+        "displayName": "Album Ivory",
+        "canonical": "#FAF5EE"
+      },
+      "album-paper": {
+        "role": "neutral",
+        "displayName": "Album Paper",
+        "canonical": "#EDE2D3"
+      },
+      "album-surface": {
+        "role": "neutral",
+        "displayName": "Album Off White",
+        "canonical": "#FFFDF9"
+      },
+      "album-plum": {
+        "role": "primary",
+        "displayName": "Album Dusty Plum",
+        "canonical": "#6A4C7D"
+      },
+      "album-lavender": {
+        "role": "secondary",
+        "displayName": "Album Lavender",
+        "canonical": "#B7A0C9"
+      },
+      "album-gold": {
+        "role": "tertiary",
+        "displayName": "Album Muted Gold",
+        "canonical": "#D6B25E"
+      },
+      "album-gold-soft": {
+        "role": "tertiary",
+        "displayName": "Album Cream Gold",
+        "canonical": "#F2E3AE"
+      },
+      "album-ink": {
+        "role": "neutral",
+        "displayName": "Album Cocoa Plum",
+        "canonical": "#3A2F3F"
+      },
+      "album-muted": {
+        "role": "neutral",
+        "displayName": "Album Warm Gray",
+        "canonical": "#70666A"
+      },
+      "album-border": {
+        "role": "neutral",
+        "displayName": "Album Paper Border",
+        "canonical": "#E6D8CC"
+      },
+      "album-plum-hover": {
+        "role": "primary",
+        "displayName": "Album Plum Hover",
+        "canonical": "#583A69"
+      },
+      "album-gold-hover": {
+        "role": "tertiary",
+        "displayName": "Album Gold Hover",
+        "canonical": "#C29E4E"
+      }
     },
     "typographyMeta": {
-      "display": { "displayName": "Page Display", "purpose": "The page title; system sans-serif with tight tracking." },
-      "title": { "displayName": "Section Title", "purpose": "Session and activity section headings." },
-      "body": { "displayName": "Interface Body", "purpose": "Panel copy and message text; the base system sans-serif style." },
-      "label": { "displayName": "Compact Label", "purpose": "Uppercase date, status, and event metadata. Time and count numerals use tabular figures." },
-      "code": { "displayName": "Inline Code", "purpose": "Inline command text in the safety statement." }
+      "display": {
+        "displayName": "Page Display",
+        "purpose": "The page title; system sans-serif with tight tracking."
+      },
+      "title": {
+        "displayName": "Section Title",
+        "purpose": "Session and activity section headings."
+      },
+      "body": {
+        "displayName": "Interface Body",
+        "purpose": "Panel copy and message text; the base system sans-serif style."
+      },
+      "label": {
+        "displayName": "Compact Label",
+        "purpose": "Uppercase date, status, and event metadata. Time and count numerals use tabular figures."
+      },
+      "code": {
+        "displayName": "Inline Code",
+        "purpose": "Inline command text in the safety statement."
+      },
+      "album-display": {
+        "displayName": "Album Serif Display",
+        "purpose": "Locally served Literata headlines on the isolated scrapbook surface."
+      },
+      "album-section": {
+        "displayName": "Album Section Head",
+        "purpose": "Editorial gallery and closing titles in the album."
+      },
+      "album-body": {
+        "displayName": "Album Sans Body",
+        "purpose": "Readable Spanish album copy and controls."
+      },
+      "album-caption": {
+        "displayName": "Album Photo Caption",
+        "purpose": "Short Spanish sample captions beneath the photographs."
+      },
+      "album-display-tablet": {
+        "displayName": "Album Tablet Display",
+        "purpose": "Fluid scrapbook opening headline at intermediate widths."
+      },
+      "album-display-mobile": {
+        "displayName": "Album Mobile Display",
+        "purpose": "Opening headline on narrow screens."
+      },
+      "album-login-display": {
+        "displayName": "Album Login Display",
+        "purpose": "Spanish login page headline."
+      },
+      "album-login-mobile": {
+        "displayName": "Album Login Mobile Display",
+        "purpose": "Login headline at narrow widths."
+      },
+      "album-section-mobile": {
+        "displayName": "Album Mobile Section Head",
+        "purpose": "Gallery and closing headings on narrow screens."
+      },
+      "album-subtitle": {
+        "displayName": "Album Opening Subtitle",
+        "purpose": "Supporting copy beside the opening collage."
+      },
+      "album-fallback": {
+        "displayName": "Album Image Fallback",
+        "purpose": "Readable alt-text fallback when a bundled image fails."
+      },
+      "album-body-small": {
+        "displayName": "Album Supporting Body",
+        "purpose": "Buttons, feedback, and secondary interface copy."
+      },
+      "album-body-quiet": {
+        "displayName": "Album Quiet Body",
+        "purpose": "Supporting metadata and secondary labels."
+      },
+      "album-brand": {
+        "displayName": "Album Wordmark",
+        "purpose": "The locally served serif wordmark."
+      },
+      "album-nav": {
+        "displayName": "Album Navigation",
+        "purpose": "Navigation and form labels."
+      },
+      "album-label": {
+        "displayName": "Album Sample Label",
+        "purpose": "Small sample-content and status labels."
+      },
+      "album-small": {
+        "displayName": "Album Footnote",
+        "purpose": "Small sample notes and disclosures."
+      },
+      "album-tiny": {
+        "displayName": "Album Micro Label",
+        "purpose": "Compact private-access label on the login page."
+      }
     },
     "shadows": [
-      { "name": "local-indicator-halo", "value": "0 0 0 3px rgb(143 224 176 / 14%)", "purpose": "Soft ring around the local-only masthead indicator." },
-      { "name": "status-idle-halo", "value": "0 0 0 4px #e2e8e9", "purpose": "Idle connection-light ring." },
-      { "name": "status-connected-halo", "value": "0 0 0 4px #d9efe2", "purpose": "Connected state ring." },
-      { "name": "status-pending-halo", "value": "0 0 0 4px #f9e5d2", "purpose": "Starting and pairing state ring." },
-      { "name": "status-review-halo", "value": "0 0 0 4px #f5ddda", "purpose": "Disconnected and review-required state ring." }
+      {
+        "name": "local-indicator-halo",
+        "value": "0 0 0 3px rgb(143 224 176 / 14%)",
+        "purpose": "Soft ring around the local-only masthead indicator."
+      },
+      {
+        "name": "status-idle-halo",
+        "value": "0 0 0 4px #e2e8e9",
+        "purpose": "Idle connection-light ring."
+      },
+      {
+        "name": "status-connected-halo",
+        "value": "0 0 0 4px #d9efe2",
+        "purpose": "Connected state ring."
+      },
+      {
+        "name": "status-pending-halo",
+        "value": "0 0 0 4px #f9e5d2",
+        "purpose": "Starting and pairing state ring."
+      },
+      {
+        "name": "status-review-halo",
+        "value": "0 0 0 4px #f5ddda",
+        "purpose": "Disconnected and review-required state ring."
+      },
+      {
+        "name": "album-photo-mat",
+        "value": "0 16px 38px color-mix(in srgb, #3A2F3F 14%, transparent)",
+        "purpose": "Soft depth beneath scrapbook photo mats."
+      },
+      {
+        "name": "album-action",
+        "value": "0 7px 18px color-mix(in srgb, #3A2F3F 12%, transparent)",
+        "purpose": "Subtle lift beneath the muted-gold gallery anchor."
+      }
     ],
     "motion": [
-      { "name": "button-transition", "value": "140ms ease", "purpose": "Button background, border, and hover-lift transitions." },
-      { "name": "event-arrival", "value": "240ms cubic-bezier(.16, 1, .3, 1)", "purpose": "New activity row arrival; removed under prefers-reduced-motion: reduce." }
+      {
+        "name": "button-transition",
+        "value": "140ms ease",
+        "purpose": "Button background, border, and hover-lift transitions."
+      },
+      {
+        "name": "event-arrival",
+        "value": "240ms cubic-bezier(.16, 1, .3, 1)",
+        "purpose": "New activity row arrival; removed under prefers-reduced-motion: reduce."
+      },
+      {
+        "name": "album-action-transition",
+        "value": "180ms ease-out",
+        "purpose": "Small lift and color transition for album actions; disabled under reduced motion."
+      }
     ],
     "breakpoints": [
-      { "name": "stack-columns", "value": "max-width: 850px" },
-      { "name": "compact-controls", "value": "max-width: 560px" }
-    ]
+      {
+        "name": "stack-columns",
+        "value": "max-width: 850px"
+      },
+      {
+        "name": "compact-controls",
+        "value": "max-width: 560px"
+      },
+      {
+        "name": "album-tablet-stack",
+        "value": "max-width: 760px"
+      },
+      {
+        "name": "album-compact-nav",
+        "value": "max-width: 420px"
+      }
+    ],
+    "surfaceMeta": {
+      "album-preview": {
+        "target": "src/pages/album/index.astro",
+        "mode": "Experience",
+        "northStar": "The Paper Memory",
+        "overview": "A separate Spanish scrapbook surface where licensed sample photographs lead. Warm ivory, paper, dusty plum, muted gold, a locally served serif, and restrained photo mats distinguish it from the operational dashboard.",
+        "keyCharacteristics": [
+          "Photos lead, with clearly disclosed sample captions and notes.",
+          "Opening collage, mixed gallery, and quiet closing photo cluster.",
+          "Dedicated layout and stylesheet; no dashboard styles or APIs."
+        ]
+      }
+    }
   },
   "components": [
     {
@@ -158,6 +543,22 @@
       "description": "Compact local-retention and account-risk summary within the session controls, especially visible on narrow screens.",
       "html": "<aside class=\"ds-session-boundary\"><strong>LOCAL · 200 EVENTS MAX</strong><p>At most 200 text events stay in memory; they clear on logout or exit. Local safeguards cannot guarantee against restrictions.</p></aside>",
       "css": ".ds-session-boundary{padding:12px 13px;border:1px solid #d6c18b;border-radius:7px;color:#493b21;background:#fff8e6}.ds-session-boundary strong{display:block;margin-bottom:2px;font-size:10px;letter-spacing:.07em}.ds-session-boundary p{margin:0;color:#59482a;font-size:11px;line-height:1.4}"
+    },
+    {
+      "name": "Album Gold Action",
+      "kind": "button",
+      "refersTo": "album-action",
+      "description": "Muted-gold anchor that moves the visitor from the opening spread to the gallery.",
+      "html": "<a class=\"ds-album-action\" href=\"#recuerdos\">Explorar recuerdos</a>",
+      "css": ".ds-album-action{min-height:54px;padding:0 23px;display:inline-flex;align-items:center;justify-content:center;gap:22px;border:1px solid #c29e4e;border-radius:3px;background:#d6b25e;color:#3a2f3f;font:700 .875rem/1.2 system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;box-shadow:0 7px 18px rgba(58,47,63,.12);text-decoration:none}.ds-album-action:hover{background:#c29e4e;transform:translateY(-2px)}.ds-album-action:focus-visible{outline:3px solid #6a4c7d;outline-offset:4px}"
+    },
+    {
+      "name": "Album Photo Mat",
+      "kind": "custom",
+      "refersTo": "album-photo-mat",
+      "description": "Off-white paper border and soft offset shadow around each locally bundled photograph.",
+      "html": "<figure class=\"ds-album-photo\"><div class=\"ds-album-mat\"><div class=\"ds-album-photo-placeholder\" role=\"img\" aria-label=\"Fotografía de muestra\"></div></div><figcaption>Fotografía y texto de muestra.</figcaption></figure>",
+      "css": ".ds-album-photo{margin:0}.ds-album-mat{padding:12px;overflow:hidden;border:1px solid #e6d8cc;background:#fffdf9;box-shadow:0 16px 38px rgba(58,47,63,.14)}.ds-album-photo-placeholder{aspect-ratio:1.2;background:#ede2d3}.ds-album-photo figcaption{padding-top:12px;color:#3a2f3f;font:500 1rem/1.5 \"Literata\",Georgia,serif}"
     }
   ],
   "narrative": {

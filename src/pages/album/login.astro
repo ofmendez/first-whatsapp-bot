@@ -1,0 +1,78 @@
+---
+import AlbumLayout from "@/src/layouts/AlbumLayout.astro";
+import AlbumPhoto from "@/src/components/album/AlbumPhoto.astro";
+import { albumLoginIllustration } from "@/src/data/album-demo.js";
+---
+
+<AlbumLayout
+  title="Entrar al álbum"
+  description="Introduce la contraseña para abrir este álbum privado de fotografías."
+>
+  <div class="album-shell album-login-shell">
+    <div class="album-shell__inner">
+      <header class="album-login-header">
+        <a class="album-wordmark" href="/login/" aria-label="Nuestro álbum">
+          <span class="album-mark" aria-hidden="true">
+            <svg viewBox="0 0 38 38" fill="none">
+              <path d="M8 8.5h17.5A3.5 3.5 0 0 1 29 12v20H11.5A3.5 3.5 0 0 1 8 28.5z" />
+              <path d="M8 12H5v16.5A3.5 3.5 0 0 0 8.5 32H29" />
+              <path d="M13 15h10M13 19h8" />
+            </svg>
+          </span>
+          <span>Nuestro álbum</span>
+        </a>
+        <span class="album-login-header__label">Acceso privado</span>
+      </header>
+
+      <main class="album-login-main">
+        <section class="album-login-panel" aria-labelledby="album-login-title">
+          <div class="album-login-copy">
+            <!-- <h1 id="album-login-title">Un lugar para volver.</h1> -->
+            <p class="album-login-intro">
+              Introduce la contraseña para ingresar.
+            </p>
+
+            <form
+              class="album-login-form"
+              method="post"
+              action="/api/album/auth/login"
+              data-album-login
+            >
+              <label for="album-passphrase">Contraseña</label>
+              <input
+                id="album-passphrase"
+                name="passphrase"
+                type="password"
+                autocomplete="current-password"
+                autocapitalize="off"
+                spellcheck="false"
+                maxlength="1024"
+                required
+                aria-describedby="album-login-feedback"
+              />
+              <button class="album-login-submit" type="submit" data-album-login-submit>
+                Entrar 
+              </button>
+              <p
+                class="album-login-feedback"
+                id="album-login-feedback"
+                data-album-login-feedback
+                role="status"
+                aria-live="polite"
+                hidden
+              ></p>
+            </form>
+
+          </div>
+
+          <AlbumPhoto
+            memory={albumLoginIllustration}
+            variant="login"
+            loading="eager"
+            priority={true}
+          />
+        </section>
+      </main>
+    </div>
+  </div>
+</AlbumLayout>

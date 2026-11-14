@@ -1,14 +1,23 @@
 import QRCode from "qrcode";
+import {
+  activityCountLabel,
+  activityEmptyCopy,
+  selectActivityMessages,
+} from "@/src/activity-filter.js";
 
 const byId = (id) => document.getElementById(id);
 const startButton = byId("start-button");
 const cancelButton = byId("cancel-button");
 const logoutButton = byId("logout-button");
+const dashboardSignOutButton = byId("dashboard-sign-out-button");
 const pairingPanel = byId("pairing-panel");
 const pairingQr = byId("pairing-qr");
 const reviewPanel = byId("review-panel");
 const activityList = byId("activity-list");
 const emptyState = byId("empty-state");
+const albumedOnly = byId("albumed-only");
+const emptyStateTitle = byId("empty-state-title");
+const emptyStateDescription = byId("empty-state-description");
 const messageInput = byId("message-input");
 const sendButton = byId("send-button");
 const messages = new Map();
@@ -18,6 +27,14 @@ let qrGeneration = 0;
 let latestMessageId = null;
 let latestMessageSequence = -1;
 let socketEvents;
+let redirectingToLogin = false;
+
+function redirectToLogin() {
+  if (redirectingToLogin) return;
+  redirectingToLogin = true;
+  socketEvents?.close();
+  window.location.replace("/login/");
+}
 
 function clearPairingQr() {
   qrGeneration += 1;
@@ -160,9 +177,15 @@ function renderMessages(newestId) {
     latestMessageSequence =
       Number(messages.get(latestMessageId)?.sequence) || latestMessageSequence;
   }
-  const sorted = [...messages.values()].sort((a, b) => a.sequence - b.sequence);
+  const sorted = selectActivityMessages(messages.values(), albumedOnly.checked);
   activityList.replaceChildren();
   if (sorted.length === 0) {
+    const copy = activityEmptyCopy({
+      albumedOnly: albumedOnly.checked,
+      retainedCount: messages.size,
+    });
+    emptyStateTitle.textContent = copy.heading;
+    emptyStateDescription.textContent = copy.description;
     activityList.append(emptyState);
     emptyState.hidden = false;
   } else {
@@ -239,8 +262,7 @@ function renderMessages(newestId) {
       activityList.append(row);
     }
   }
-  byId("activity-count").textContent =
-    `${sorted.length} ${sorted.length === 1 ? "EVENT" : "EVENTS"}`;
+  byId("activity-count").textContent = activityCountLabel(sorted.length);
 }
 
 function createImageUnavailable() {
@@ -259,10 +281,35 @@ async function api(path, body) {
     body: JSON.stringify(body ?? {}),
   });
   const result = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    redirectToLogin();
+    throw new Error("Your dashboard session has ended.");
+  }
   if (!response.ok)
     throw new Error(result.error || "Request failed. Review the session state and try again.");
   return result;
 }
+
+dashboardSignOutButton.addEventListener("click", async () => {
+  dashboardSignOutButton.disabled = true;
+  try {
+    const response = await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (!response.ok) throw new Error();
+    socketEvents?.close();
+    window.location.replace("/login/");
+  } catch {
+    dashboardSignOutButton.disabled = false;
+    byId("action-feedback").textContent =
+      "Dashboard sign-out could not be completed. Check the connection and try again.";
+  }
+});
+
+albumedOnly.addEventListener("change", () => renderMessages());
 
 startButton.addEventListener("click", async () => {
   startButton.disabled = true;
@@ -340,6 +387,10 @@ byId("send-form").addEventListener("submit", async (event) => {
 async function loadState() {
   try {
     const response = await fetch("/api/state", { credentials: "same-origin", cache: "no-store" });
+    if (response.status === 401) {
+      redirectToLogin();
+      return;
+    }
     if (!response.ok) throw new Error();
     const result = await response.json();
     renderState(result.state);
@@ -370,7 +421,15 @@ function connectEvents() {
       renderMessages();
     }
   });
-  socketEvents.onerror = () => {
+  socketEvents.onerror = async () => {
+    const response = await fetch("/api/state", {
+      credentials: "same-origin",
+      cache: "no-store",
+    }).catch(() => null);
+    if (response?.status === 401) {
+      redirectToLogin();
+      return;
+    }
     byId("action-feedback").textContent =
       "Live updates are reconnecting. The session state remains available.";
   };
@@ -384,4 +443,4 @@ function connectEvents() {
 updateClock();
 setInterval(updateClock, 60_000);
 await loadState();
-connectEvents();
+if (!redirectingToLogin) connectEvents();

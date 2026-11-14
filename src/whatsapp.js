@@ -21,7 +21,14 @@ function selfChatJid(user) {
   return jid;
 }
 
-export async function createWhatsAppSession({ onPairing, onOpen, onClose, onUpsert }) {
+export async function createWhatsAppSession({
+  onPairing,
+  onOpen,
+  onClose,
+  onUpsert,
+  onAlbumApproved,
+  albumService,
+}) {
   const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
   const socket = makeWASocket({
     auth: state,
@@ -51,9 +58,14 @@ export async function createWhatsAppSession({ onPairing, onOpen, onClose, onUpse
   });
 
   socket.ev.on("messages.upsert", (upsert) => {
-    void processUpsert(upsert, (jid, content) => socket.sendMessage(jid, content)).catch(() => {});
+    const activeAccountJids = accountJids(socket.user);
+    void processUpsert(upsert, (jid, content) => socket.sendMessage(jid, content), {
+      accountJids: activeAccountJids,
+      albumService,
+      onAlbumApproved,
+    }).catch(() => {});
     try {
-      onUpsert?.(upsert, accountJids(socket.user));
+      onUpsert?.(upsert, activeAccountJids);
     } catch {
       // A passive panel failure must not interfere with command processing.
     }

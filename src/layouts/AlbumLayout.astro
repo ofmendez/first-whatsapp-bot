@@ -1,0 +1,26 @@
+---
+import "@/src/styles/album.css";
+
+const {
+  title = "Nuestro álbum",
+  description = "Una colección privada de fotografías compartidas.",
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#FAF5EE" />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+  </head>
+  <body class="album-body">
+    <slot />
+  </body>
+  <script>
+    import "@/src/scripts/album-auth.js";
+    import "@/src/scripts/album-images.js";
+  </script>
+</html>

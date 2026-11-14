@@ -1,0 +1,42 @@
+---
+---
+
+<section
+  class="album-gallery"
+  id="recuerdos"
+  aria-labelledby="album-title"
+  data-album-gallery
+  aria-busy="true"
+>
+  <header class="album-gallery__heading">
+    <h1 id="album-title"></h1>
+  </header>
+
+  <div
+    class="album-gallery__grid"
+    id="album-photos"
+    data-album-grid
+    role="list"
+    aria-label="Fotografías aprobadas"
+  ></div>
+  <p class="album-gallery__status" data-album-status role="status" aria-live="polite" tabindex="-1">
+    Cargando los recuerdos…
+  </p>
+  <noscript>
+    <p class="album-gallery__status">
+      Activa JavaScript para consultar las fotografías de forma segura.
+    </p>
+  </noscript>
+  <div class="album-gallery__controls">
+    <button
+      class="album-gallery__more"
+      type="button"
+      data-album-more
+      aria-controls="album-photos"
+      hidden
+    >
+      Cargar más
+    </button>
+  </div>
+  <div class="album-gallery__sentinel" data-album-sentinel aria-hidden="true"></div>
+</section>

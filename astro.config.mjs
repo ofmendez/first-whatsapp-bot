@@ -10,6 +10,10 @@ export default defineConfig({
     format: "directory",
   },
   vite: {
+    build: {
+      // Keep scripts as same-origin files so the server's CSP needs no inline exception.
+      assetsInlineLimit: 0,
+    },
     resolve: {
       alias: {
         "@": projectDirectory,

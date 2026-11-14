@@ -44,6 +44,18 @@ colors:
   connection-update-text: "#754000"
   brand-mark: "#ffcf58"
   selection: "#ffe08a"
+  album-bg: "#FAF5EE"
+  album-paper: "#EDE2D3"
+  album-surface: "#FFFDF9"
+  album-plum: "#6A4C7D"
+  album-lavender: "#B7A0C9"
+  album-gold: "#D6B25E"
+  album-gold-soft: "#F2E3AE"
+  album-ink: "#3A2F3F"
+  album-muted: "#70666A"
+  album-border: "#E6D8CC"
+  album-plum-hover: "#583A69"
+  album-gold-hover: "#C29E4E"
 typography:
   display:
     fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
@@ -68,6 +80,73 @@ typography:
   code:
     fontFamily: 'ui-monospace, "Cascadia Mono", monospace'
     fontSize: ".95em"
+  album-display:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(3.15rem, 5.2vw, 5.3rem)"
+    fontWeight: 500
+    lineHeight: 1.02
+    letterSpacing: "-.035em"
+  album-display-tablet:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(2.9rem, 6.2vw, 4.4rem)"
+    fontWeight: 500
+  album-display-mobile:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(3.25rem, 12vw, 4.5rem)"
+    fontWeight: 500
+  album-login-display:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(3rem, 5vw, 4.75rem)"
+    fontWeight: 500
+  album-login-mobile:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(3rem, 11vw, 4.2rem)"
+    fontWeight: 500
+  album-section:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(2.25rem, 3.8vw, 3.5rem)"
+    fontWeight: 500
+  album-section-mobile:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(2.25rem, 8.5vw, 3.2rem)"
+    fontWeight: 500
+  album-caption:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(1rem, 1.45vw, 1.35rem)"
+    lineHeight: 1.4
+  album-subtitle:
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: "clamp(1rem, 1.25vw, 1.13rem)"
+    lineHeight: 1.75
+  album-fallback:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(0.9rem, 1.5vw, 1.1rem)"
+    lineHeight: 1.5
+  album-body:
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: "1rem"
+    lineHeight: 1.65
+  album-body-small:
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: ".875rem"
+  album-body-quiet:
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: ".9375rem"
+  album-brand:
+    fontFamily: '"Literata", Georgia, "Times New Roman", serif'
+    fontSize: "1.125rem"
+  album-nav:
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: ".8125rem"
+  album-label:
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: ".6875rem"
+  album-small:
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: ".75rem"
+  album-tiny:
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: ".625rem"
 rounded:
   micro: "3px"
   field: "6px"
@@ -77,6 +156,7 @@ rounded:
   readout: "10px"
   panel: "12px"
   circle: "50%"
+  album-control: "3px"
 components:
   button-primary:
     backgroundColor: "{colors.primary}"
@@ -128,6 +208,14 @@ components:
     backgroundColor: "{colors.alert-bg}"
     rounded: "{rounded.callout}"
     padding: "17px 20px"
+  album-action:
+    backgroundColor: "{colors.album-gold}"
+    textColor: "{colors.album-ink}"
+    rounded: "{rounded.album-control}"
+    height: "54px"
+  album-photo-mat:
+    backgroundColor: "{colors.album-surface}"
+    padding: "clamp(8px, 1vw, 14px)"
 ---
 
 # Design System: WhatsApp Session Control
@@ -232,3 +320,11 @@ Controls and panels use gently rounded corners from the observed `rounded` token
 - **Don't** turn the panel into an airport-screen illustration or use board styling for navigation and controls.
 - **Don't** use state colors as general decoration or replace the written state with color alone.
 - **Don't** add surface shadows, gradients, or a new spacing/radius scale absent from the shipped CSS.
+
+## Album Preview Surface (separate)
+
+The album is an independent Experience surface and does not inherit the dashboard's cool-blue operational palette or global CSS. Its scrapbook direction, Spanish copy, gallery structure, responsive behavior, and isolation boundary are recorded in `docs/album-design.md` and `.impeccable/surfaces/src-pages-album-index-astro.md`.
+
+The album-only `album-*` tokens above follow the supplied warm-ivory, paper, dusty-plum, and muted-gold palette. Headlines use locally bundled Literata under SIL OFL 1.1; interface and caption-support text use the system sans-serif stack. Photo mats use fine paper borders, soft offset shadows, and restrained rotations. At narrow widths, opening, gallery, and closing content become one readable column with reduced overlap.
+
+The dashboard's "Local Session Board" remains its visual contract. Album components, fonts, and CSS are isolated to the album layout; the public demo photographs are licensed, non-personal assets documented in `docs/album-demo-assets.md`.

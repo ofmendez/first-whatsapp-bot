@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
 import { expect, mock, test } from "bun:test";
-import { MessageFeed, projectLiveImages, projectLiveMessages } from "@/src/message-feed.js";
+import {
+  MessageFeed,
+  normalizeJid,
+  projectLiveImages,
+  projectLiveMessages,
+} from "@/src/message-feed.js";
 import { SessionController } from "@/src/session-controller.js";
 
 const textMessage = (
@@ -13,7 +19,16 @@ const textMessage = (
   ...(pushName ? { pushName } : {}),
 });
 
-function setup({ session = {}, clearAuth, messageLimit, selfChatValidation } = {}) {
+function setup({
+  session = {},
+  clearAuth,
+  imageReceiver,
+  messageLimit,
+  selfChatValidation,
+  albumService,
+  albumCatalog,
+  onAlbumApproved,
+} = {}) {
   let callbacks;
   const factory = mock(async (handlers) => {
     callbacks = handlers;
@@ -27,8 +42,12 @@ function setup({ session = {}, clearAuth, messageLimit, selfChatValidation } = {
   const manager = new SessionController({
     createSession: factory,
     clearAuth,
+    imageReceiver,
     messageLimit,
     selfChatValidation,
+    albumService,
+    albumCatalog,
+    onAlbumApproved,
   });
   return {
     manager,
@@ -57,6 +76,125 @@ test("start creates one session and repeated start actions reuse the active stat
   expect(manager.getSnapshot()).toMatchObject({ status: "connected", qr: null });
   await manager.start();
   expect(factory).toHaveBeenCalledTimes(1);
+});
+
+test("album approval wiring ignores updates from an obsolete session attempt", async () => {
+  const albumService = { approveConversation: mock(async () => ({})) };
+  const onAlbumApproved = mock(() => {});
+  const { manager, factory } = setup({ albumService, onAlbumApproved });
+
+  await manager.start();
+  const previousAttempt = factory.mock.calls[0][0];
+  expect(previousAttempt.albumService).toBe(albumService);
+  previousAttempt.onOpen();
+  previousAttempt.onAlbumApproved({ conversationId: "current-before-close" });
+  expect(onAlbumApproved).toHaveBeenCalledTimes(1);
+
+  previousAttempt.onClose({ loggedOut: false });
+  await manager.start();
+  const currentAttempt = factory.mock.calls[1][0];
+  currentAttempt.onOpen();
+  previousAttempt.onAlbumApproved({ conversationId: "stale-after-restart" });
+  currentAttempt.onAlbumApproved({ conversationId: "current-after-restart" });
+
+  expect(onAlbumApproved.mock.calls.map(([approval]) => approval.conversationId)).toEqual([
+    "current-before-close",
+    "current-after-restart",
+  ]);
+});
+
+test("text and image events carry opaque account-scoped approval state and approval updates retained events", async () => {
+  const accountJid = "owner@s.whatsapp.net";
+  const firstChat = "same-name-contact@s.whatsapp.net";
+  const secondChat = "another-same-name-contact@s.whatsapp.net";
+  const conversationIdFor = (account, chat) =>
+    createHash("sha256")
+      .update(`synthetic-conversation\0${normalizeJid(account)}\0${normalizeJid(chat)}`)
+      .digest("hex");
+  const firstConversationId = conversationIdFor(accountJid, firstChat);
+  const secondConversationId = conversationIdFor(accountJid, secondChat);
+  const approved = new Set([secondConversationId]);
+  const albumService = {
+    getConversationIdentity: mock((account, chat) => ({
+      conversationId: conversationIdFor(account, chat),
+    })),
+  };
+  const albumCatalog = {
+    isConversationApproved: mock((conversationId) => approved.has(conversationId)),
+  };
+  const imageReceiver = {
+    receive: async (_upsert, selfJids, onImage) => {
+      const conversationId = conversationIdFor(selfJids[0], firstChat);
+      onImage({
+        kind: "image",
+        direction: "incoming",
+        label: "Same Contact",
+        timestamp: "2026-11-12T12:00:00.000Z",
+        conversationId,
+        albumed: approved.has(conversationId),
+      });
+    },
+  };
+  const onAlbumApproved = mock(() => {});
+  const { manager, factory } = setup({
+    albumService,
+    albumCatalog,
+    imageReceiver,
+    onAlbumApproved,
+  });
+  const updates = [];
+  manager.subscribe((update) => updates.push(update));
+  await manager.start();
+  const handlers = factory.mock.calls[0][0];
+  handlers.onOpen();
+  handlers.onUpsert(
+    {
+      type: "notify",
+      messages: [
+        textMessage(firstChat, "first private live text", { pushName: "Same Contact" }),
+        textMessage(secondChat, "second private live text", { pushName: "Same Contact" }),
+      ],
+    },
+    [accountJid],
+  );
+
+  const initial = manager.getSnapshot().messages;
+  expect(initial).toHaveLength(3);
+  expect(initial.map(({ conversationId, albumed }) => ({ conversationId, albumed }))).toEqual([
+    { conversationId: firstConversationId, albumed: false },
+    { conversationId: secondConversationId, albumed: true },
+    { conversationId: firstConversationId, albumed: false },
+  ]);
+  expect(JSON.stringify(initial)).not.toContain(accountJid);
+  expect(JSON.stringify(initial)).not.toContain(firstChat);
+  expect(JSON.stringify(initial)).not.toContain(secondChat);
+  expect(conversationIdFor("other-owner@s.whatsapp.net", firstChat)).not.toBe(firstConversationId);
+
+  approved.add(firstConversationId);
+  handlers.onAlbumApproved({ conversationId: firstConversationId });
+  const reconciled = manager.getSnapshot();
+  expect(
+    reconciled.messages.map(({ conversationId, albumed }) => ({ conversationId, albumed })),
+  ).toEqual([
+    { conversationId: firstConversationId, albumed: true },
+    { conversationId: secondConversationId, albumed: true },
+    { conversationId: firstConversationId, albumed: true },
+  ]);
+  expect(onAlbumApproved).toHaveBeenCalledWith({ conversationId: firstConversationId });
+  expect(updates.at(-1)).toMatchObject({
+    type: "state",
+    state: { messages: reconciled.messages },
+  });
+
+  handlers.onUpsert({ type: "notify", messages: [] }, [accountJid]);
+  expect(manager.getSnapshot().messages.at(-1)).toMatchObject({
+    kind: "image",
+    conversationId: firstConversationId,
+    albumed: true,
+  });
+
+  handlers.onClose({ loggedOut: true });
+  expect(manager.getSnapshot().messages).toEqual([]);
 });
 
 test("cancel ends a pending socket, clears the QR, and returns to stopped", async () => {
@@ -183,6 +321,26 @@ test("feed is bounded and clear discards all transient content", () => {
   expect(feed.snapshot().map((item) => item.text)).toEqual(["private two", "private three"]);
   feed.clear();
   expect(feed.snapshot()).toEqual([]);
+});
+
+test("approval marking only updates retained events without changing the 200-event eviction boundary", () => {
+  const feed = new MessageFeed();
+  const conversationId = "a".repeat(64);
+  for (let sequence = 1; sequence <= 201; sequence += 1) {
+    feed.append({
+      conversationId,
+      albumed: false,
+      text: `synthetic event ${sequence}`,
+    });
+  }
+
+  const updated = feed.markConversationAlbumed(conversationId);
+
+  expect(feed.snapshot()).toHaveLength(200);
+  expect(updated).toHaveLength(200);
+  expect(feed.snapshot()[0]).toMatchObject({ sequence: 2, albumed: true });
+  expect(feed.snapshot().at(-1)).toMatchObject({ sequence: 201, albumed: true });
+  expect(feed.markConversationAlbumed("../not-an-identity")).toEqual([]);
 });
 
 test("successful logout ends the socket before auth cleanup and clears messages", async () => {

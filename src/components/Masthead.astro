@@ -22,8 +22,17 @@
     </span>
     <span>SESSION CONTROL</span>
   </a>
-  <div class="local-marker inline-flex items-center gap-2.25 max-mobile:text-[9px] max-mobile:tracking-wider">
+  <div class="local-marker inline-flex items-center gap-2.25 max-mobile:gap-1.5">
     <span class="local-dot size-2 rounded-full" aria-hidden="true"></span>
-    <span>LOCAL · LOOPBACK ONLY</span>
+    <span class="max-mobile:hidden">OWNER · PRIVATE</span>
+    <button
+      class="dashboard-sign-out-button"
+      id="dashboard-sign-out-button"
+      type="button"
+      aria-label="Sign out of the dashboard without ending WhatsApp"
+      title="Signs out of this dashboard without ending WhatsApp"
+    >
+      Sign out
+    </button>
   </div>
 </header>

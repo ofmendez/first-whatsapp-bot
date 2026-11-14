@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -8,6 +8,137 @@ import { ReceivedImageStore } from "@/src/received-image-store.js";
 import { SessionController } from "@/src/session-controller.js";
 
 const imageStream = (value = "synthetic image bytes") => Readable.from([Buffer.from(value)]);
+
+test("conversation approval creates the shared folder first and reserves one confirmation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "album-approval-"));
+  try {
+    const store = new ReceivedImageStore({ root });
+    const approval = {
+      accountJid: "owner:4@s.whatsapp.net",
+      chatJid: "friend@s.whatsapp.net",
+      displayName: "Friend/../Contact",
+    };
+    const identity = store.getConversationIdentity(approval.accountJid, approval.chatJid);
+    const results = await Promise.all([
+      store.approveConversation(approval),
+      store.approveConversation(approval),
+    ]);
+    const folder = await store.ensureConversationFolder({
+      ...approval,
+      displayName: "Renamed Contact",
+    });
+    const saved = await store.save({
+      accountJid: approval.accountJid,
+      chatJid: approval.chatJid,
+      displayName: approval.displayName,
+      messageId: "first-after-approval",
+      timestamp: "2026-11-12T12:00:00.000Z",
+      mimeType: "image/jpeg",
+      stream: imageStream(),
+    });
+    const entries = await readdir(root, { withFileTypes: true });
+    const markerPath = join(folder, "album.json");
+    const marker = JSON.parse(await readFile(markerPath, "utf8"));
+    const afterRestart = new ReceivedImageStore({ root });
+
+    expect(results.map(({ shouldConfirm }) => shouldConfirm).sort()).toEqual([false, true]);
+    expect(results.every(({ conversationId }) => conversationId === identity.conversationId)).toBe(
+      true,
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].isDirectory()).toBe(true);
+    expect(folder).toBe(join(root, entries[0].name));
+    expect(entries[0].name).toContain("--chat-friend-at-s.whatsapp.net-");
+    expect(entries[0].name).not.toContain("../");
+    expect(dirname(saved.path)).toBe(folder);
+    expect(marker).toMatchObject({
+      version: 1,
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "friend@s.whatsapp.net",
+      conversationId: identity.conversationId,
+      albumed: true,
+      confirmationAttemptReserved: true,
+    });
+    expect((await stat(markerPath)).mode & 0o777).toBe(0o600);
+    expect(await afterRestart.readAlbumApproval(folder)).toMatchObject({
+      conversationId: identity.conversationId,
+      approvedAt: marker.approvedAt,
+    });
+
+    const otherAccount = await store.approveConversation({
+      ...approval,
+      accountJid: "another-owner@s.whatsapp.net",
+    });
+    expect(otherAccount.conversationId).not.toBe(identity.conversationId);
+    expect(await readdir(root, { withFileTypes: true })).toHaveLength(2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("approval marker failures and mismatched identities fail closed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "album-approval-failure-"));
+  try {
+    const approval = {
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "friend@s.whatsapp.net",
+      displayName: "Contact",
+    };
+    const failedWriter = new ReceivedImageStore({
+      root,
+      renameMetadataFile: async () => {
+        throw new Error("synthetic metadata rename failure");
+      },
+    });
+    await expect(failedWriter.approveConversation(approval)).rejects.toThrow(
+      "Album approval could not be saved",
+    );
+    const folder = await failedWriter.ensureConversationFolder(approval);
+    expect(await failedWriter.readAlbumApproval(folder)).toBeUndefined();
+    expect(await readdir(folder)).toEqual([]);
+
+    const validStore = new ReceivedImageStore({ root });
+    await writeFile(join(folder, "album.json"), "{malformed", { mode: 0o600 });
+    expect(await validStore.readAlbumApproval(folder)).toBeUndefined();
+    await expect(validStore.approveConversation(approval)).rejects.toThrow(
+      "Album approval record is invalid",
+    );
+    expect(await readFile(join(folder, "album.json"), "utf8")).toBe("{malformed");
+
+    const mismatchedRoot = await mkdtemp(join(tmpdir(), "album-approval-mismatch-"));
+    try {
+      const mismatchedStore = new ReceivedImageStore({ root: mismatchedRoot });
+      const mismatchedFolder = await mismatchedStore.ensureConversationFolder(approval);
+      const mismatchedConversationId = mismatchedStore.getConversationIdentity(
+        approval.accountJid,
+        "different-chat@s.whatsapp.net",
+      ).conversationId;
+      const now = new Date().toISOString();
+      await writeFile(
+        join(mismatchedFolder, "album.json"),
+        JSON.stringify({
+          version: 1,
+          accountJid: "owner@s.whatsapp.net",
+          chatJid: "different-chat@s.whatsapp.net",
+          conversationId: mismatchedConversationId,
+          albumed: true,
+          approvedAt: now,
+          confirmationAttemptReserved: true,
+          confirmationAttemptReservedAt: now,
+        }),
+        { mode: 0o600 },
+      );
+      expect(await mismatchedStore.readAlbumApproval(mismatchedFolder)).toBeUndefined();
+      await expect(mismatchedStore.approveConversation(approval)).rejects.toThrow(
+        "Album approval record is invalid",
+      );
+    } finally {
+      await rm(mismatchedRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("image store keeps a flat, ID-isolated folder with generated safe filenames", async () => {
   const root = await mkdtemp(join(tmpdir(), "received-image-store-"));
@@ -82,12 +213,18 @@ test("image store keeps a flat, ID-isolated folder with generated safe filenames
 
     for (const folder of folders) {
       const entries = await readdir(join(root, folder.name), { withFileTypes: true });
-      expect(entries.length).toBe(folder.name === basename(dirname(first.path)) ? 3 : 1);
-      for (const entry of entries) {
+      const originals = entries.filter((entry) =>
+        /^image-\d+-[a-f0-9]{20}\.(?:jpg|png|webp|gif|avif)$/.test(entry.name),
+      );
+      const sidecars = entries.filter((entry) => entry.name.endsWith(".json"));
+      expect(originals.length).toBe(folder.name === basename(dirname(first.path)) ? 3 : 1);
+      expect(sidecars).toHaveLength(originals.length);
+      for (const entry of originals) {
         expect(entry.isFile()).toBe(true);
-        expect(entry.name).toMatch(/^image-\d+-[a-f0-9]{20}\.(?:jpg|png|webp)$/);
+        expect(entry.name).toMatch(/^image-\d+-[a-f0-9]{20}\.(?:jpg|png|webp|gif|avif)$/);
         expect(entry.name).not.toContain("incoming-image");
         expect((await stat(join(root, folder.name, entry.name))).isFile()).toBe(true);
+        expect(sidecars.some((sidecar) => sidecar.name === `${entry.name}.json`)).toBe(true);
       }
     }
 
@@ -111,7 +248,8 @@ test("image receiver streams one direct image, deduplicates repeats, and emits p
     previewUrl: "/api/media/aabbccdd-aabb-4abb-8abb-aabbccddaabb",
   }));
   const download = mock(async () => imageStream());
-  const receiver = new ImageReceiver({ store: { save }, download });
+  const onSaved = mock(() => {});
+  const receiver = new ImageReceiver({ store: { save }, download, onSaved });
   const events = [];
   const upsert = { type: "notify", messages: [message] };
 
@@ -120,11 +258,13 @@ test("image receiver streams one direct image, deduplicates repeats, and emits p
 
   expect(download).toHaveBeenCalledTimes(1);
   expect(save).toHaveBeenCalledTimes(1);
+  expect(onSaved).toHaveBeenCalledTimes(1);
   expect(save.mock.calls[0][0]).toMatchObject({
     accountJid: "owner@s.whatsapp.net",
     chatJid: "contact@s.whatsapp.net",
     displayName: "Contact",
     mimeType: "image/png",
+    caption: "synthetic private caption",
   });
   expect(events).toHaveLength(1);
   expect(events[0]).toEqual({
@@ -141,6 +281,162 @@ test("image receiver streams one direct image, deduplicates repeats, and emits p
   expect(JSON.stringify(events)).not.toContain("contact@s.whatsapp.net");
   expect(JSON.stringify(events)).not.toContain("/private/local/path.png");
   expect(JSON.stringify(events)).not.toContain("synthetic-message-id");
+});
+
+test("saved image activity includes an opaque conversation identity and current approval only", async () => {
+  const root = await mkdtemp(join(tmpdir(), "received-image-activity-"));
+  try {
+    const store = new ReceivedImageStore({ root });
+    const accountJid = "owner:2@s.whatsapp.net";
+    const chatJid = "contact@s.whatsapp.net";
+    const identity = store.getConversationIdentity(accountJid, chatJid);
+    await store.approveConversation({ accountJid, chatJid, displayName: "Same Contact" });
+    const receiver = new ImageReceiver({
+      store,
+      download: async () => imageStream(),
+      isConversationApproved: (conversationId) => conversationId === identity.conversationId,
+    });
+    const events = [];
+    await receiver.receive(
+      {
+        type: "notify",
+        messages: [
+          {
+            key: { id: "synthetic-approved-image", remoteJid: chatJid, fromMe: false },
+            message: { imageMessage: { mimetype: "image/png" } },
+            messageTimestamp: 1_800_000_000,
+            pushName: "Same Contact",
+          },
+        ],
+      },
+      [accountJid],
+      (event) => events.push(event),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: "image",
+      conversationId: identity.conversationId,
+      albumed: true,
+      label: "Same Contact",
+    });
+    expect(JSON.stringify(events)).not.toContain(accountJid);
+    expect(JSON.stringify(events)).not.toContain(chatJid);
+    expect(JSON.stringify(events)).not.toContain(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("image sidecars retain dates, captions, stable IDs, and owner overrides", async () => {
+  const root = await mkdtemp(join(tmpdir(), "received-image-metadata-"));
+  try {
+    const store = new ReceivedImageStore({ root });
+    const saved = await store.save({
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "contact@s.whatsapp.net",
+      displayName: "Contact",
+      messageId: "captioned-image",
+      timestamp: "2026-11-12T12:34:56.789Z",
+      mimeType: "image/jpeg",
+      caption: "original attached caption",
+      stream: imageStream("original synthetic image bytes"),
+    });
+    const sidecarPath = `${saved.path}.json`;
+    const initial = JSON.parse(await readFile(sidecarPath, "utf8"));
+    expect(initial).toMatchObject({
+      version: 1,
+      filename: basename(saved.path),
+      timestamp: "2026-11-12T12:34:56.789Z",
+      mimeType: "image/jpeg",
+      caption: "original attached caption",
+    });
+    expect(initial.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(saved.imageId).toBe(initial.id);
+    expect((await stat(sidecarPath)).mode & 0o777).toBe(0o600);
+
+    await writeFile(
+      sidecarPath,
+      JSON.stringify({ ...initial, captionOverride: "edited caption" }),
+      {
+        mode: 0o600,
+      },
+    );
+    const duplicate = await store.save({
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "contact@s.whatsapp.net",
+      displayName: "Renamed Contact",
+      messageId: "captioned-image",
+      timestamp: "2026-11-12T12:34:56.789Z",
+      mimeType: "image/jpeg",
+      caption: "replacement caption must not win",
+      stream: imageStream("replacement bytes must not win"),
+    });
+    const metadata = await store.readImageMetadata(dirname(saved.path), basename(saved.path));
+    expect(duplicate.imageId).toBe(initial.id);
+    expect(await readFile(saved.path, "utf8")).toBe("original synthetic image bytes");
+    expect(metadata).toMatchObject({
+      id: initial.id,
+      caption: "original attached caption",
+      captionOverride: "edited caption",
+      effectiveCaption: "edited caption",
+    });
+
+    await writeFile(sidecarPath, JSON.stringify({ ...initial, captionOverride: "" }), {
+      mode: 0o600,
+    });
+    expect(await store.readImageMetadata(dirname(saved.path), basename(saved.path))).toMatchObject({
+      effectiveCaption: undefined,
+    });
+    const afterRestart = new ReceivedImageStore({ root });
+    const restartedDuplicate = await afterRestart.save({
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "contact@s.whatsapp.net",
+      displayName: "Contact after restart",
+      messageId: "captioned-image",
+      timestamp: "2026-11-12T12:34:56.789Z",
+      mimeType: "image/jpeg",
+      caption: "restart must not replace the original",
+      stream: imageStream("restart must not replace original bytes"),
+    });
+    expect(restartedDuplicate.imageId).toBe(initial.id);
+    expect(await readFile(saved.path, "utf8")).toBe("original synthetic image bytes");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("sidecar failure preserves the saved original and dashboard preview", async () => {
+  const root = await mkdtemp(join(tmpdir(), "received-image-sidecar-failure-"));
+  try {
+    const store = new ReceivedImageStore({
+      root,
+      writeMetadataFile: async () => {
+        throw new Error("synthetic sidecar write failure");
+      },
+    });
+    const saved = await store.save({
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "contact@s.whatsapp.net",
+      displayName: "Contact",
+      messageId: "sidecar-failure",
+      timestamp: "2026-11-12T12:34:56.789Z",
+      mimeType: "image/png",
+      caption: "private caption",
+      stream: imageStream(),
+    });
+    const entries = await readdir(dirname(saved.path));
+
+    expect(saved.previewUrl).toStartWith("/api/media/");
+    expect(saved.imageId).toBeUndefined();
+    expect(await store.openMedia(saved.mediaId)).toMatchObject({ contentType: "image/png" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toBe(basename(saved.path));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("image receiver reports a generic unavailable event when media download fails", async () => {
@@ -278,7 +574,7 @@ test("logout and process shutdown clear transient image events but retain saved 
     const foldersAfterLogout = await readdir(root);
     expect(foldersAfterLogout).toHaveLength(1);
     const filesAfterLogout = await readdir(join(root, foldersAfterLogout[0]));
-    expect(filesAfterLogout).toHaveLength(1);
+    expect(filesAfterLogout).toHaveLength(2);
 
     await manager.start();
     callbacks.onOpen();
@@ -287,12 +583,12 @@ test("logout and process shutdown clear transient image events but retain saved 
     const shutdownMediaId = beforeShutdown.split("/").at(-1);
     await manager.stopForProcessExit();
     expect(manager.getSnapshot().messages).toEqual([]);
-    expect((await readdir(join(root, foldersAfterLogout[0]))).length).toBe(2);
+    expect((await readdir(join(root, foldersAfterLogout[0]))).length).toBe(4);
 
     const afterRestart = new ReceivedImageStore({ root });
     expect(await afterRestart.openMedia(logoutMediaId)).toBeUndefined();
     expect(await afterRestart.openMedia(shutdownMediaId)).toBeUndefined();
-    expect((await readdir(join(root, foldersAfterLogout[0]))).length).toBe(2);
+    expect((await readdir(join(root, foldersAfterLogout[0]))).length).toBe(4);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

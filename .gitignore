@@ -12,6 +12,8 @@ out
 dist
 /.astro/
 *.tgz
+/.local/album-preview-cert.pem
+/.local/album-preview-key.pem
 
 # code coverage
 coverage
@@ -41,5 +43,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 
 /.opencode
+/.impeccable/review/
 /openspec/changes/**
 !/openspec/changes/archive/
+/.local

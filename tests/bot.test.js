@@ -120,6 +120,156 @@ test("sends finish sequentially within a batch", async () => {
   expect(events).toEqual(["start first", "end first", "start second", "end second"]);
 });
 
+test("album opt-in accepts normalized exact direct-contact text and confirms after commit", async () => {
+  const order = [];
+  const approveConversation = mock(async (approval) => {
+    order.push("commit");
+    expect(approval).toEqual({
+      accountJid: "owner@s.whatsapp.net",
+      chatJid: "contact@s.whatsapp.net",
+      displayName: "Contact",
+    });
+    return {
+      approved: true,
+      conversationId: "opaque-conversation-id",
+      newlyApproved: true,
+      shouldConfirm: true,
+    };
+  });
+  const send = mock(async (jid, content) => {
+    order.push("send");
+    expect(jid).toBe("contact@s.whatsapp.net");
+    expect(content).toEqual({
+      text: "Álbum iniciado. Las imágenes de esta conversación se incluirán en el álbum.",
+    });
+  });
+  const onAlbumApproved = mock(() => order.push("dashboard-update"));
+
+  await processUpsert(
+    batch({
+      ...incoming({ conversation: "  ｉｎｉｃｉａ　Ａｌｂｕｍ\n" }, "contact@s.whatsapp.net"),
+      pushName: "Contact",
+    }),
+    send,
+    {
+      accountJids: ["owner@s.whatsapp.net"],
+      albumService: { approveConversation },
+      onAlbumApproved,
+    },
+  );
+
+  expect(approveConversation).toHaveBeenCalledTimes(1);
+  expect(onAlbumApproved).toHaveBeenCalledTimes(1);
+  expect(order).toEqual(["commit", "dashboard-update", "send"]);
+});
+
+test("album opt-in excludes non-exact, non-direct, self, outgoing, quoted, and caption text", async () => {
+  const approveConversation = mock(async () => ({
+    approved: true,
+    newlyApproved: true,
+    shouldConfirm: true,
+  }));
+  const send = mock(async () => {});
+  const exactText = (text, remoteJid = "contact@s.whatsapp.net", fromMe = false) =>
+    incoming({ conversation: text }, remoteJid, fromMe);
+
+  await processUpsert(
+    batch(
+      exactText("iniciar album"),
+      exactText("inicia album ahora"),
+      exactText("inicia album!"),
+      incoming({ imageMessage: { caption: "inicia album" } }),
+      incoming({
+        extendedTextMessage: {
+          contextInfo: { quotedMessage: { conversation: "inicia album" } },
+        },
+      }),
+      exactText("inicia album", "contact@g.us"),
+      exactText("inicia album", "status@broadcast"),
+      exactText("inicia album", "newsletter@newsletter"),
+      exactText("inicia album", "owner@lid"),
+      exactText("inicia album", "contact@s.whatsapp.net", true),
+      {
+        key: { remoteJid: "contact@s.whatsapp.net" },
+        message: { conversation: "inicia album" },
+      },
+    ),
+    send,
+    {
+      accountJids: ["owner@s.whatsapp.net", "owner@lid"],
+      albumService: { approveConversation },
+    },
+  );
+  await processUpsert(batch(exactText("inicia album")), send, {
+    accountJids: [],
+    albumService: { approveConversation },
+  });
+  await processUpsert({ type: "append", messages: [exactText("inicia album")] }, send, {
+    accountJids: ["owner@s.whatsapp.net"],
+    albumService: { approveConversation },
+  });
+
+  expect(approveConversation).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalled();
+});
+
+test("approval failure sends no confirmation and does not publish album state", async () => {
+  const approveConversation = mock(async () => {
+    throw new Error("synthetic approval persistence failure");
+  });
+  const send = mock(async () => {});
+  const onAlbumApproved = mock(() => {});
+
+  await expect(
+    processUpsert(
+      batch(incoming({ conversation: "inicia album" }, "contact@s.whatsapp.net")),
+      send,
+      {
+        accountJids: ["owner@s.whatsapp.net"],
+        albumService: { approveConversation },
+        onAlbumApproved,
+      },
+    ),
+  ).rejects.toThrow("synthetic approval persistence failure");
+  expect(send).not.toHaveBeenCalled();
+  expect(onAlbumApproved).not.toHaveBeenCalled();
+});
+
+test("committed approval is retained after send failure and never retried automatically", async () => {
+  let attemptReserved = false;
+  const approveConversation = mock(async () => {
+    if (attemptReserved) {
+      return {
+        approved: true,
+        newlyApproved: false,
+        shouldConfirm: false,
+      };
+    }
+    attemptReserved = true;
+    return {
+      approved: true,
+      newlyApproved: true,
+      shouldConfirm: true,
+    };
+  });
+  const send = mock(async () => {
+    throw new Error("synthetic confirmation send failure");
+  });
+  const upsert = batch(incoming({ conversation: "inicia album" }, "contact@s.whatsapp.net"));
+  const options = {
+    accountJids: ["owner@s.whatsapp.net"],
+    albumService: { approveConversation },
+  };
+
+  await expect(processUpsert(upsert, send, options)).rejects.toThrow(
+    "synthetic confirmation send failure",
+  );
+  await processUpsert(upsert, send, options);
+  expect(attemptReserved).toBe(true);
+  expect(approveConversation).toHaveBeenCalledTimes(2);
+  expect(send).toHaveBeenCalledTimes(1);
+});
+
 test("send rejection propagates without retry or subsequent sends", async () => {
   const error = new Error("synthetic send failure");
   const send = mock(async () => {
@@ -162,8 +312,29 @@ test("explicit session factory wires one socket, persistence, transient pairing,
   const onOpen = mock(() => {});
   const onClose = mock(() => {});
   const onUpsert = mock(() => {});
+  const approveConversation = mock(async (approval) => {
+    expect(approval).toEqual({
+      accountJid: "synthetic@s.whatsapp.net",
+      chatJid: "contact@s.whatsapp.net",
+      displayName: "Contact",
+    });
+    return {
+      approved: true,
+      conversationId: "socket-conversation",
+      newlyApproved: true,
+      shouldConfirm: true,
+    };
+  });
+  const onAlbumApproved = mock(() => {});
   try {
-    const session = await createWhatsAppSession({ onPairing, onOpen, onClose, onUpsert });
+    const session = await createWhatsAppSession({
+      onPairing,
+      onOpen,
+      onClose,
+      onUpsert,
+      albumService: { approveConversation },
+      onAlbumApproved,
+    });
     expect(auth.mock.calls).toEqual([["./auth_info"]]);
     expect(pino.mock.calls).toEqual([[{ level: "silent" }]]);
     expect(makeSocket.mock.calls).toEqual([
@@ -198,9 +369,16 @@ test("explicit session factory wires one socket, persistence, transient pairing,
       ),
     );
     const commandSent = Promise.withResolvers();
+    const albumSent = Promise.withResolvers();
     socket.sendMessage.mockImplementation(async function (jid, content) {
       expect(this).toBe(socket);
       if (content.text === reply.text) commandSent.resolve();
+      if (
+        content.text ===
+        "Álbum iniciado. Las imágenes de esta conversación se incluirán en el álbum."
+      ) {
+        albumSent.resolve();
+      }
     });
     upsert(batch(incoming({ conversation: "!ping" }, "self", true)));
     onUpsert.mockImplementationOnce(() => {
@@ -216,12 +394,34 @@ test("explicit session factory wires one socket, persistence, transient pairing,
       ),
     );
     await commandSent.promise;
-    expect(socket.sendMessage).toHaveBeenCalledTimes(1);
-    expect(onUpsert.mock.calls.length).toBe(4);
-    expect(socket.sendMessage.mock.calls).toEqual([["synthetic@s.whatsapp.net", reply]]);
+    upsert(
+      batch({
+        ...incoming({ conversation: "inicia album" }, "contact@s.whatsapp.net"),
+        pushName: "Contact",
+      }),
+    );
+    await albumSent.promise;
+    expect(approveConversation).toHaveBeenCalledTimes(1);
+    expect(onAlbumApproved).toHaveBeenCalledWith({
+      approved: true,
+      conversationId: "socket-conversation",
+      newlyApproved: true,
+      shouldConfirm: true,
+    });
+    expect(socket.sendMessage).toHaveBeenCalledTimes(2);
+    expect(onUpsert.mock.calls.length).toBe(5);
+    expect(socket.sendMessage.mock.calls).toEqual([
+      ["synthetic@s.whatsapp.net", reply],
+      [
+        "contact@s.whatsapp.net",
+        {
+          text: "Álbum iniciado. Las imágenes de esta conversación se incluirán en el álbum.",
+        },
+      ],
+    ]);
 
     await session.sendSelf("synthetic manual self-chat");
-    expect(socket.sendMessage.mock.calls[1]).toEqual([
+    expect(socket.sendMessage.mock.calls[2]).toEqual([
       "synthetic@s.whatsapp.net",
       { text: "synthetic manual self-chat" },
     ]);

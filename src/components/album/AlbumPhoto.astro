@@ -1,0 +1,39 @@
+---
+const { memory, variant = "", loading = "lazy", priority = false } = Astro.props;
+const variants = variant.split(/\s+/).filter(Boolean);
+---
+
+<figure
+  class:list={["album-photo", ...variants.map((name) => `album-photo--${name}`)]}
+  data-album-photo
+>
+  <div class="album-photo__mat">
+    <img
+      class="album-photo__image"
+      src={memory.photo.src}
+      srcset={memory.photo.srcSet}
+      sizes={
+        variant === "opening-lead"
+          ? "(max-width: 760px) 82vw, 46vw"
+          : "(max-width: 760px) 88vw, 40vw"
+      }
+      width={memory.photo.width}
+      height={memory.photo.height}
+      alt={memory.alt}
+      loading={loading}
+      fetchpriority={priority ? "high" : "auto"}
+      decoding="async"
+      data-album-image
+    />
+    <span
+      class="album-photo__fallback"
+      role="img"
+      aria-label={`Fotografía no disponible. ${memory.alt}`}
+      hidden
+    >
+      Fotografía no disponible.
+      <br />
+      {memory.alt}
+    </span>
+  </div>
+</figure>

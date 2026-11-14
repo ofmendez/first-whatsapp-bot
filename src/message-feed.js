@@ -73,7 +73,7 @@ export function projectLiveImages(upsert, selfJids = []) {
   return projected;
 }
 
-export function projectLiveMessages(upsert, selfJids = []) {
+export function projectLiveMessageEntries(upsert, selfJids = []) {
   if (upsert?.type !== "notify" || !Array.isArray(upsert.messages)) return [];
 
   const self = new Set(selfJids.map(normalizeJid).filter(Boolean));
@@ -89,17 +89,24 @@ export function projectLiveMessages(upsert, selfJids = []) {
 
     const isSelfChat = self.has(normalizeJid(remoteJid));
     projected.push({
-      direction: message.key?.fromMe ? "outgoing" : "incoming",
-      isSelfChat,
-      label: isSelfChat
-        ? "Message yourself"
-        : (typeof message.pushName === "string" && message.pushName.trim()) || "Direct chat",
-      timestamp: toTimestamp(message.messageTimestamp),
-      text,
+      chatJid: normalizeJid(remoteJid),
+      message: {
+        direction: message.key?.fromMe ? "outgoing" : "incoming",
+        isSelfChat,
+        label: isSelfChat
+          ? "Message yourself"
+          : (typeof message.pushName === "string" && message.pushName.trim()) || "Direct chat",
+        timestamp: toTimestamp(message.messageTimestamp),
+        text,
+      },
     });
   }
 
   return projected;
+}
+
+export function projectLiveMessages(upsert, selfJids = []) {
+  return projectLiveMessageEntries(upsert, selfJids).map(({ message }) => message);
 }
 
 export class MessageFeed {
@@ -122,6 +129,20 @@ export class MessageFeed {
 
   snapshot() {
     return this.#messages.map((message) => ({ ...message }));
+  }
+
+  markConversationAlbumed(conversationId) {
+    if (typeof conversationId !== "string" || !/^[a-f0-9]{64}$/i.test(conversationId)) {
+      return [];
+    }
+    const updated = [];
+    this.#messages = this.#messages.map((message) => {
+      if (message.conversationId !== conversationId || message.albumed === true) return message;
+      const marked = { ...message, albumed: true };
+      updated.push(marked);
+      return marked;
+    });
+    return updated.map((message) => ({ ...message }));
   }
 
   clear() {

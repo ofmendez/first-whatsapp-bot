@@ -15,15 +15,23 @@ function messageIdentity(accountJid, image) {
 export class ImageReceiver {
   #store;
   #download;
+  #onSaved;
+  #isConversationApproved;
   #seen = new Set();
 
-  constructor({ store, download }) {
+  constructor({ store, download, onSaved, isConversationApproved = () => false }) {
     if (!store || typeof store.save !== "function")
       throw new TypeError("A received-image store is required");
     if (typeof download !== "function")
       throw new TypeError("A media download function is required");
+    if (onSaved !== undefined && typeof onSaved !== "function")
+      throw new TypeError("Image save notifications must be a function");
+    if (typeof isConversationApproved !== "function")
+      throw new TypeError("Conversation approval checks must be a function");
     this.#store = store;
     this.#download = download;
+    this.#onSaved = onSaved;
+    this.#isConversationApproved = isConversationApproved;
   }
 
   async receive(upsert, selfJids, onImage) {
@@ -42,12 +50,31 @@ export class ImageReceiver {
   }
 
   async #receiveOne({ image, accountJid, onImage }) {
+    let conversationId;
+    let albumed = false;
+    try {
+      conversationId = this.#store.getConversationIdentity?.(
+        accountJid,
+        image.remoteJid,
+      )?.conversationId;
+      if (typeof conversationId === "string") {
+        albumed = this.#isConversationApproved(conversationId) === true;
+      }
+    } catch {
+      // Keep the image event visible if optional album identity is unavailable.
+    }
     const event = {
       kind: "image",
       direction: image.direction,
       isSelfChat: image.isSelfChat,
       label: image.label,
       timestamp: image.timestamp,
+      ...(typeof conversationId === "string"
+        ? {
+            conversationId,
+            albumed,
+          }
+        : {}),
       ...(image.caption ? { caption: image.caption } : {}),
     };
 
@@ -64,8 +91,21 @@ export class ImageReceiver {
         messageId: image.message.key?.id,
         timestamp: image.timestamp,
         mimeType,
+        caption: image.caption,
         stream,
       });
+      try {
+        Promise.resolve(this.#onSaved?.()).catch(() => {});
+      } catch {
+        // Catalog refresh failures must not affect image persistence or previews.
+      }
+      if (typeof conversationId === "string") {
+        try {
+          event.albumed = this.#isConversationApproved(conversationId) === true;
+        } catch {
+          // Persistence and dashboard previews do not depend on filter state.
+        }
+      }
       event.previewUrl = saved.previewUrl;
       event.unavailable = false;
     } catch {
