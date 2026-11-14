@@ -1,21 +1,22 @@
-
 module.exports = {
   apps: [
     {
       name: "my-whatsapp-bot",
-      script: "./index.js",
       cwd: __dirname,
-      interpreter: `${process.env.HOME}/.bun/bin/bun`,
+      // Run Bun directly so index.js remains the main module.
+      script: `${process.env.HOME}/.bun/bin/bun`,
+      args: ["run", "index.js"],
+      interpreter: "none",
 
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
-      watch: true,
+      // Runtime credential and image writes must not restart the process.
+      watch: false,
 
       env: {
         NODE_ENV: "production",
-        PORT: process.env.PANEL_PORT || 3000,
-      }
-    }
-  ]
+      },
+    },
+  ],
 };

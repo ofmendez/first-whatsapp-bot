@@ -46,6 +46,43 @@ ssh -L 3008:127.0.0.1:3008 <user>@<vps-host>
 Then open <http://127.0.0.1:3008> locally. Do not expose the control port on a
 public interface.
 
+## Run with PM2
+
+Use the same service account for Bun, PM2, and the private `.env` file. The
+ecosystem configuration expects Bun at `$HOME/.bun/bin/bun`; adjust `script`
+in `ecosystem.config.cjs` if Bun is installed elsewhere. Set `PANEL_PORT` in
+`.env` (default `3008`); the application does not read `PORT`.
+
+Build the static panel before starting PM2:
+
+```bash
+bun install
+bun run build
+pm2 start ecosystem.config.cjs
+pm2 logs my-whatsapp-bot --lines 50
+```
+
+Stop any foreground `bun run start` before starting PM2 to avoid a port conflict.
+The logs should report `Control panel listening at http://127.0.0.1:3008`
+(or your configured port). Keep the reverse proxy or SSH tunnel pointed at that
+loopback address.
+
+When replacing an existing PM2 entry created with the old interpreter/watch
+settings, recreate it once:
+
+```bash
+bun run build
+pm2 delete my-whatsapp-bot
+pm2 start ecosystem.config.cjs
+```
+
+The configuration launches Bun directly so `index.js` is the main module and
+its startup guard runs. File watching is disabled because credential and image
+writes must not restart the app. Subsequent deployments should run
+`bun run build` followed by
+`pm2 restart ecosystem.config.cjs --update-env`. After verifying the service,
+run `pm2 save` to persist the process list.
+
 ## Local HTTPS preview for both surfaces
 
 The album preview uses the same Bun process as the dashboard. For realistic
