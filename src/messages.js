@@ -3,7 +3,7 @@ import { normalizeJid } from "@/src/message-feed.js";
 
 const ALBUM_COMMAND = "inicia album";
 const ALBUM_CONFIRMATION =
-  "Álbum iniciado. Las imágenes de esta conversación se incluirán en el álbum.";
+  "Hemos iniciado, ya estoy disponible!";
 const DIRECT_CHAT_SERVERS = new Set(["s.whatsapp.net", "lid", "c.us"]);
 
 function messageText(message) {

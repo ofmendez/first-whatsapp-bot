@@ -308,7 +308,6 @@ test("processing emits neither message bodies nor sender identifiers", async () 
 
 test("explicit session factory wires one socket, persistence, transient pairing, and self-only sends", async () => {
   const log = spyOn(console, "log").mockImplementation(() => {});
-  const info = spyOn(console, "info").mockImplementation(() => {});
   const onPairing = mock(() => {});
   const onOpen = mock(() => {});
   const onClose = mock(() => {});
@@ -456,19 +455,58 @@ test("explicit session factory wires one socket, persistence, transient pairing,
     await expect(secondSession.sendSelf("synthetic failing send")).rejects.toBe(failure);
   } finally {
     log.mockRestore();
-    info.mockRestore();
   }
 });
 
-test("pairing diagnostics expose only fixed lifecycle labels and safe disconnect codes", async () => {
+async function withDebug(value, run) {
+  const previous = process.env.DEBUG;
   const info = spyOn(console, "info").mockImplementation(() => {});
-  const privateValue = "private QR / auth key / phone / message";
+  if (value === undefined) delete process.env.DEBUG;
+  else process.env.DEBUG = value;
   try {
-    const onPairing = mock(() => {});
+    await run(info);
+  } finally {
+    if (previous === undefined) delete process.env.DEBUG;
+    else process.env.DEBUG = previous;
+    info.mockRestore();
+  }
+}
+
+test("diagnostics are disabled unless DEBUG is exactly true", async () => {
+  for (const value of [undefined, "", "false", "0", "1", "TRUE", "*"]) {
+    await withDebug(value, async (info) => {
+      const onPairing = mock(() => {});
+      const onOpen = mock(() => {});
+      const onClose = mock(() => {});
+      await createWhatsAppSession({ onPairing, onOpen, onClose });
+      const connection = handlers.get("connection.update");
+      connection({ qr: "private QR" });
+      connection({ isNewLogin: true });
+      connection({ connection: "open" });
+      saveCreds.mockRejectedValueOnce(new Error("private credentials"));
+      await handlers.get("creds.update")();
+      connection({
+        connection: "close",
+        lastDisconnect: { error: { output: { statusCode: 401 } } },
+      });
+      expect(info).not.toHaveBeenCalled();
+      expect(onPairing).toHaveBeenCalledWith("private QR");
+      expect(onOpen).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledWith({ loggedOut: true });
+      auth.mockRejectedValueOnce(new Error("private auth error"));
+      await expect(createWhatsAppSession({})).rejects.toThrow("private auth error");
+      expect(info).not.toHaveBeenCalled();
+    });
+  }
+});
+
+test("DEBUG diagnostics expose only fixed pairing stages and safe disconnect codes", async () => {
+  await withDebug("true", async (info) => {
+    const privateValue = "private QR / credentials / phone / message";
     const onClose = mock(() => {});
-    await createWhatsAppSession({ onPairing, onClose });
+    await createWhatsAppSession({ onClose });
     const connection = handlers.get("connection.update");
-    connection({ qr: privateValue, user: privateValue });
+    connection({ qr: privateValue });
     connection({ qr: `${privateValue}-replacement` });
     connection({ isNewLogin: true, credentials: privateValue });
     connection({
@@ -482,7 +520,6 @@ test("pairing diagnostics expose only fixed lifecycle labels and safe disconnect
         },
       },
     });
-    // Late library events cannot revive or duplicate diagnostics for a closed socket.
     connection({ connection: "open", qr: privateValue });
     connection({ connection: "close" });
     expect(info.mock.calls).toEqual([
@@ -501,17 +538,13 @@ test("pairing diagnostics expose only fixed lifecycle labels and safe disconnect
       ],
     ]);
     expect(JSON.stringify(info.mock.calls)).not.toContain(privateValue);
-    expect(onPairing).toHaveBeenCalledTimes(2);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledWith({ loggedOut: false });
-  } finally {
-    info.mockRestore();
-  }
+  });
 });
 
-test("disconnect diagnostics distinguish rejection, timeout, and unknown codes without raw errors", async () => {
-  const info = spyOn(console, "info").mockImplementation(() => {});
-  try {
+test("DEBUG diagnostics distinguish rejection, timeout, and unknown codes without raw errors", async () => {
+  await withDebug("true", async (info) => {
     for (const [code, expectedCode, reason] of [
       [401, 401, "logged-out-or-rejected"],
       [408, 408, "connection-lost-or-timed-out"],
@@ -540,15 +573,12 @@ test("disconnect diagnostics distinguish rejection, timeout, and unknown codes w
       ]);
     }
     expect(JSON.stringify(info.mock.calls)).not.toContain("private error text");
-  } finally {
-    info.mockRestore();
-  }
+  });
 });
 
-test("credential and startup failures are diagnosed without logging private errors", async () => {
-  const info = spyOn(console, "info").mockImplementation(() => {});
-  const privateError = new Error("private authentication material");
-  try {
+test("DEBUG diagnostics report credential and startup failures without private errors", async () => {
+  await withDebug("true", async (info) => {
+    const privateError = new Error("private authentication material");
     await createWhatsAppSession({});
     saveCreds.mockRejectedValueOnce(privateError).mockRejectedValueOnce(privateError);
     await handlers.get("creds.update")();
@@ -575,9 +605,7 @@ test("credential and startup failures are diagnosed without logging private erro
       { event: "session-start-failed", stage: "starting" },
     ]);
     expect(JSON.stringify(info.mock.calls)).not.toContain(privateError.message);
-  } finally {
-    info.mockRestore();
-  }
+  });
 });
 
 test("importing the application entry point does not open a WhatsApp session", async () => {

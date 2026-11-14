@@ -165,36 +165,43 @@ proxied DNS record alone does not protect the VPS origin or rate-limit login.
 - An ordinary process restart is not logout. Local auth stays in `auth_info/`
   so the owner can deliberately start that account again.
 
-### Diagnosing failed pairing
+### Optional pairing diagnostics
 
-Run `bun run start` in a terminal after stopping the existing app/service, then
-choose **Start session** in the panel. If running under a service manager, view
-that service's logs instead of launching a second instance.
+WhatsApp diagnostics are disabled by default. To enable them, set this in your
+private `.env` and restart the app/service:
 
-Routine `[whatsapp]` diagnostics contain only fixed lifecycle labels and a
-sanitized numeric disconnect code. QR values, credentials, account identifiers,
-message content, and raw library errors are never included. The QR remains
-available only in the panel. Useful events:
+```dotenv
+DEBUG=true
+```
+
+For a temporary terminal run, stop the existing app first, then run:
+
+```bash
+DEBUG=true bun run start
+```
+
+Only the exact value `true` enables these logs. An absent, empty, `false`, or
+other value keeps them off. The setting is read when each WhatsApp session is
+created. It does not enable raw Baileys logging or change reconnect behavior.
+
+The `[whatsapp]` lines contain fixed event/stage labels and sanitized numeric
+disconnect codes only—never QR values, credentials, account identifiers,
+message content, or raw errors. The QR remains available only in the panel.
 
 - `qr-issued` / `qr-refreshed`: a code was offered, not proof of a successful scan.
-- `pairing-accepted`: the library reported a new login; this is not yet a
-  connected session or confirmation that credentials were saved successfully.
+- `pairing-accepted`: the library reported a new login; the connection is not
+  open yet, and this does not confirm credential persistence.
 - `connection-open`: the session connected.
-- `connection-close`: includes the last observed stage, `statusCode`, and a
-  fixed reason. `515` means a connection restart is required; this app does not
-  reconnect automatically, so choose **Start session** again to resume using
-  saved credentials. `401` means logged out or rejected, not QR expiration.
+- `connection-close`: includes the last observed stage and disconnect reason.
+  `515` requires a connection restart: choose **Start session** again to resume
+  with saved credentials. `401` means logged out or rejected, not QR expiration.
   `408` means connection loss or timeout. Unknown codes do not imply a cause.
-- `credentials-save-failed`: at least one credential write failed. Stop the
-  app and check service-account write permissions and available disk space
-  before retrying. Do not share files from `auth_info/`.
-- `session-start-failed`: local auth loading or socket creation failed; no raw
-  error is logged.
+- `credentials-save-failed`: at least one credential write failed. Stop the app
+  and check service-account write permissions and available disk space.
+- `session-start-failed`: auth loading or socket creation failed.
 
-Share only the `[whatsapp]` diagnostic sequence when investigating a failed
-attempt. These events cannot by themselves prove an upstream protocol bug.
-Do not repeatedly delete credentials or extend QR lifetimes as a substitute
-for identifying the failure.
+Share only the `[whatsapp]` sequence when diagnosing pairing, not files from
+`auth_info/`. These events alone cannot prove an upstream protocol bug.
 
 ## Live messages and sending
 

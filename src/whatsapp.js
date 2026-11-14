@@ -49,11 +49,11 @@ export async function createWhatsAppSession({
   onAlbumApproved,
   albumService,
 }) {
+  const debug = process.env.DEBUG === "true";
   let stage = "starting";
-  // Only fixed event/stage labels and sanitized numeric codes reach routine logs.
-  // Never pass library updates, errors, credential objects, or QR values here.
+  // Never pass library updates, raw errors, credentials, or QR values here.
   const diagnostic = (event, details = {}) => {
-    console.info("[whatsapp]", { event, stage, ...details });
+    if (debug) console.info("[whatsapp]", { event, stage, ...details });
   };
   diagnostic("session-start");
   let state;
