@@ -81,7 +81,27 @@ its startup guard runs. File watching is disabled because credential and image
 writes must not restart the app. Subsequent deployments should run
 `bun run build` followed by
 `pm2 restart ecosystem.config.cjs --update-env`. After verifying the service,
-run `pm2 save` to persist the process list.
+run `pm2 save` to persist the process list. Keep the existing single forked
+instance; do not add PM2 instances or enable watching.
+
+When changing `WHATSAPP_AUTOSTART` or another private environment value, edit
+`.env` as the service account and restart with updated environment:
+
+```bash
+pm2 restart my-whatsapp-bot --update-env
+pm2 logs my-whatsapp-bot --lines 50
+pm2 save
+```
+
+To restore the process after a VPS reboot, run `pm2 startup` while logged in as
+the same unprivileged service account that owns the application, `.env`, and
+`auth_info/`. Run the exact privileged command PM2 prints; it includes that
+service account's user and home directory. Then run `pm2 save` as the service
+account. After a reboot, verify the matching `pm2-<service-user>` systemd unit,
+run `pm2 status` as the service account, and check the application logs for the
+loopback listener. Do not create the startup unit or saved process list in
+root's PM2 home; the privileged command PM2 prints must target the service
+account explicitly.
 
 ## Local HTTPS preview for both surfaces
 
@@ -190,8 +210,8 @@ proxied DNS record alone does not protect the VPS origin or rate-limit login.
 ## Session and account switching
 
 - Use **Start session** to create the one allowed Baileys socket. Repeated start
-  requests reuse the current state; the application does not automatically
-  reconnect after a connection loss.
+  requests reuse the current state. In manual-only mode, a connection loss is
+  reported without creating a replacement socket.
 - Use **Cancel pairing** to end an unfinished QR pairing attempt.
 - To switch accounts, choose **Log out & switch account** and confirm. The app
   remotely unlinks and waits for the old socket to end before deleting
@@ -200,7 +220,61 @@ proxied DNS record alone does not protect the VPS origin or rate-limit login.
 - **Sign out** revokes only the browser's dashboard session. It does not stop or
   log out the linked WhatsApp account.
 - An ordinary process restart is not logout. Local auth stays in `auth_info/`
-  so the owner can deliberately start that account again.
+  so the owner can deliberately start that account again. Automatic resume is
+  available only when the opt-in setting below is enabled and registration is
+  present.
+
+### Optional unattended operation
+
+Unattended operation is **off by default**. Set this exact value in the private
+`.env` file to opt in:
+
+```dotenv
+WHATSAPP_AUTOSTART=true
+```
+
+Only the exact string `true` enables saved-account startup and recovery; an
+unset value, `false`, `TRUE`, or any other value keeps manual-only behavior.
+Restart the PM2 process with `--update-env` after changing the setting. The
+HTTP dashboard starts independently and stays available if WhatsApp startup
+fails.
+
+- At process startup, the service resumes only readable, already registered
+  credentials. No registered account means no automatic socket or QR; use
+  **Start session** for explicit pairing. Malformed or unreadable auth requires
+  owner review. Credentials are not automatically deleted, unlinked, or
+  replaced.
+- After a confirmed disconnect, unattended mode makes at most five replacement
+  attempts, delayed by 2, 4, 8, 16, and 30 seconds. It retries only connection
+  lost/timed out (408), connection closed (428), service unavailable (503), and
+  restart required (515). A 515 after explicit pairing uses this same budget.
+- The budget resets after 60 continuously connected seconds, or after a fresh
+  manual **Start session** when the budget is exhausted. Brief connections do
+  not reset it.
+- Logout/rejection (401), forbidden (403), multidevice mismatch (411), replaced
+  connection (440), bad session (500), unknown failures, credential-save
+  failures, generic startup failures, and uncertain socket closure stop
+  automatic recovery for owner intervention. The service process and dashboard
+  remain running; recovery does not loop indefinitely.
+- Closing tabs, signing out, dashboard authentication expiry, and aborting the
+  last event stream stop only dashboard observation. They do not stop WhatsApp
+  command processing or consent-approved image receipt in the service process.
+
+The dashboard and WhatsApp connection are separate states: a reachable control
+panel does not mean WhatsApp is connected. Check the protected **Session
+Status** and recovery details.
+
+This is bounded best-effort recovery, not message replay, guaranteed delivery,
+automatic retry of failed sends, or protection from account restrictions. For
+the real-account, browser-closed and reboot checks, use the explicitly opted-in
+[unattended acceptance checklist](docs/unattended-session-acceptance.md).
+Record checks that are not performed as **NOT RUN**; tests and application
+startup never perform them.
+
+To roll back to manual-only operation, set `WHATSAPP_AUTOSTART=false` (or unset
+it) and restart PM2 with updated environment. This does not unlink the account
+or delete saved credentials. Continue with **Start session** when you want to
+connect manually.
 
 ### Optional pairing diagnostics
 
@@ -230,9 +304,10 @@ message content, or raw errors. The QR remains available only in the panel.
   open yet, and this does not confirm credential persistence.
 - `connection-open`: the session connected.
 - `connection-close`: includes the last observed stage and disconnect reason.
-  `515` requires a connection restart: choose **Start session** again to resume
-  with saved credentials. `401` means logged out or rejected, not QR expiration.
-  `408` means connection loss or timeout. Unknown codes do not imply a cause.
+  `515` requires a connection restart: in manual-only mode choose **Start
+  session** again; unattended mode attempts a bounded resume from saved
+  registration. `401` means logged out or rejected, not QR expiration. `408`
+  means connection loss or timeout. Unknown codes do not imply a cause.
 - `credentials-save-failed`: at least one credential write failed. Stop the app
   and check service-account write permissions and available disk space.
 - `session-start-failed`: auth loading or socket creation failed.

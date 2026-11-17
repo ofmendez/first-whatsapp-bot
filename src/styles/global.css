@@ -235,12 +235,14 @@
     box-shadow: 0 0 0 4px #d9efe2;
   }
   .connection-light[data-state="pairing"],
-  .connection-light[data-state="starting"] {
+  .connection-light[data-state="starting"],
+  .connection-light[data-state="reconnecting"] {
     background: var(--color-warning);
     box-shadow: 0 0 0 4px #f9e5d2;
   }
   .connection-light[data-state="review-required"],
-  .connection-light[data-state="disconnected"] {
+  .connection-light[data-state="disconnected"],
+  .connection-light[data-state="logged-out"] {
     background: var(--color-danger);
     box-shadow: 0 0 0 4px #f5ddda;
   }
@@ -283,6 +285,25 @@
     margin: 9px 0 0;
     color: #435963;
     font-size: 12px;
+  }
+  .recovery-panel h3 {
+    margin: 0 0 3px;
+    font-size: 13px;
+    font-weight: 720;
+  }
+  .recovery-panel p {
+    margin: 0;
+    color: #4d4128;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .recovery-panel[data-state="intervention"] {
+    border-color: #d7a6a0;
+    background: #fff7f5;
+    color: #7c2a22;
+  }
+  .recovery-panel[data-state="intervention"] p {
+    color: #7c2a22;
   }
   .pairing-copy h3,
   .review-panel h3 {

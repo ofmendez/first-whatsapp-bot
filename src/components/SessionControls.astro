@@ -34,6 +34,18 @@
       Log out &amp; switch account
     </button>
     <p class="action-feedback" id="action-feedback" role="status" aria-live="polite"></p>
+    <div
+      class="recovery-panel mt-3 rounded-[9px] border border-[#d6c18b] bg-[#fff8e6] p-3.25 text-[#493b21]"
+      id="recovery-panel"
+      data-state="pending"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      hidden
+    >
+      <h3 id="recovery-heading">Automatic recovery scheduled</h3>
+      <p id="recovery-message"></p>
+    </div>
   </div>
 
   <div
@@ -100,11 +112,13 @@
         class="fact-mark grid size-5.75 place-items-center rounded-full border border-[#a8bac1]"
         aria-hidden="true"
       >
-        0
+        5
       </span>
       <p>
-        <strong>No auto-reconnect</strong>
-        <span>Connection loss is reported for you to review.</span>
+        <strong>Bounded recovery</strong>
+        <span>
+          When enabled on the service, supported losses get at most five delayed attempts.
+        </span>
       </p>
     </div>
   </div>

@@ -16,7 +16,18 @@ import {
 function createManager() {
   const listeners = new Set();
   const manager = {
-    state: { status: "stopped", qr: null, messages: [], selfChatValidation: "not-run" },
+    state: {
+      status: "stopped",
+      qr: null,
+      messages: [],
+      selfChatValidation: "not-run",
+      recovery: {
+        attempt: 0,
+        maxAttempts: 5,
+        nextRetryAt: null,
+        interventionReason: null,
+      },
+    },
     start: mock(async () => manager.state),
     cancel: mock(async () => manager.state),
     logout: mock(async () => manager.state),
@@ -171,6 +182,7 @@ test("event stream sends the initial state and new updates only to a dashboard s
   const initial = new TextDecoder().decode((await reader.read()).value);
   expect(initial).toContain('"type":"state"');
   expect(initial).toContain('"status":"stopped"');
+  expect(initial).toContain('"maxAttempts":5');
 
   panel.manager.emit({ type: "message", message: { id: 1, text: "ephemeral synthetic body" } });
   const update = new TextDecoder().decode((await reader.read()).value);
@@ -206,6 +218,61 @@ test("event stream sends the initial state and new updates only to a dashboard s
   abort.abort();
   await reader.cancel().catch(() => {});
   expect(typeof panel.manager.subscribe.mock.results[0].value).toBe("function");
+});
+
+test("recovery snapshots and events are protected and contain only safe fixed metadata", async () => {
+  const manager = createManager();
+  manager.state = {
+    status: "reconnecting",
+    qr: null,
+    messages: [],
+    selfChatValidation: "not-run",
+    recovery: {
+      attempt: 3,
+      maxAttempts: 5,
+      nextRetryAt: "2026-11-17T12:34:56.000Z",
+      interventionReason: null,
+    },
+  };
+  const panel = createPanel({ manager });
+  const unauthorizedState = await panel.handler(new Request(`${origin}/api/state`));
+  const unauthorizedEvents = await panel.handler(new Request(`${origin}/api/events`));
+  expect(unauthorizedState.status).toBe(401);
+  expect(unauthorizedEvents.status).toBe(401);
+  expect(await unauthorizedState.text()).not.toContain("reconnecting");
+  expect(manager.getSnapshot).not.toHaveBeenCalled();
+  expect(manager.subscribe).not.toHaveBeenCalled();
+
+  const stateResponse = await panel.withDashboardSession(new Request(`${origin}/api/state`));
+  expect((await stateResponse.json()).state.recovery).toEqual(manager.state.recovery);
+
+  const abort = new AbortController();
+  const eventsResponse = await panel.withDashboardSession(
+    new Request(`${origin}/api/events`, { signal: abort.signal }),
+  );
+  const reader = eventsResponse.body.getReader();
+  const initial = new TextDecoder().decode((await reader.read()).value);
+  expect(initial).toContain('"status":"reconnecting"');
+  expect(initial).toContain('"attempt":3');
+  expect(initial).toContain('"nextRetryAt":"2026-11-17T12:34:56.000Z"');
+  expect(initial).not.toContain("raw error");
+
+  manager.state = {
+    ...manager.state,
+    status: "review-required",
+    recovery: {
+      attempt: 3,
+      maxAttempts: 5,
+      nextRetryAt: null,
+      interventionReason: "credential-save-failed",
+    },
+  };
+  manager.emit({ type: "state", state: manager.state });
+  const intervention = new TextDecoder().decode((await reader.read()).value);
+  expect(intervention).toContain('"interventionReason":"credential-save-failed"');
+  expect(intervention).not.toContain("raw error");
+  abort.abort();
+  await reader.cancel().catch(() => {});
 });
 
 test("media route serves only registered image IDs with private response headers", async () => {
@@ -1003,10 +1070,12 @@ test("native form fallbacks POST credentials to auth endpoints without exposing 
 
 test("sign-out revokes only the dashboard session and does not log out WhatsApp", async () => {
   const panel = createPanel();
+  panel.manager.state.status = "connected";
   const response = await panel.handler(jsonPost("/api/auth/logout", {}, { Cookie: panel.cookie }));
 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ ok: true });
+  expect(panel.manager.state.status).toBe("connected");
   expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
   expect(
     panel.dashboardAuth.isAuthorized(

@@ -28,13 +28,19 @@ function setup({
   albumService,
   albumCatalog,
   onAlbumApproved,
+  unattendedEnabled = false,
+  clock,
+  createSession,
 } = {}) {
   let callbacks;
+  const attempts = [];
   const factory = mock(async (handlers) => {
     callbacks = handlers;
+    attempts.push(handlers);
+    if (createSession) return createSession(handlers);
     return {
-      logout: mock(async () => callbacks.onClose({ loggedOut: true })),
-      end: mock(async () => callbacks.onClose({ loggedOut: false })),
+      logout: mock(async () => handlers.onClose({ loggedOut: true })),
+      end: mock(async () => handlers.onClose({ loggedOut: false })),
       sendSelf: mock(async () => {}),
       ...session,
     };
@@ -48,18 +54,196 @@ function setup({
     albumService,
     albumCatalog,
     onAlbumApproved,
+    unattendedEnabled,
+    clock,
   });
   return {
     manager,
     factory,
+    attempts,
     callbacks: () => callbacks,
   };
+}
+
+function createFakeClock(start = 1_800_000_000_000) {
+  let currentTime = start;
+  let nextTimerId = 1;
+  const scheduled = new Map();
+  return {
+    now: () => currentTime,
+    setTimeout(callback, delay) {
+      const id = nextTimerId++;
+      scheduled.set(id, { callback, due: currentTime + delay });
+      return id;
+    },
+    clearTimeout(id) {
+      scheduled.delete(id);
+    },
+    async advance(milliseconds) {
+      const target = currentTime + milliseconds;
+      while (true) {
+        const next = [...scheduled.entries()]
+          .filter(([, timer]) => timer.due <= target)
+          .sort(([, first], [, second]) => first.due - second.due)[0];
+        if (!next) break;
+        const [id, timer] = next;
+        scheduled.delete(id);
+        currentTime = timer.due;
+        await timer.callback();
+      }
+      currentTime = target;
+    },
+    get size() {
+      return scheduled.size;
+    },
+  };
+}
+
+function startFailure(code) {
+  return Object.assign(new Error("private saved-auth detail"), {
+    name: "WhatsAppSessionStartError",
+    code,
+  });
 }
 
 test("constructing the manager is stopped and does not create a WhatsApp socket", () => {
   const { manager, factory } = setup();
   expect(manager.getSnapshot().status).toBe("stopped");
   expect(factory).not.toHaveBeenCalled();
+});
+
+test("automatic startup is opt-in and missing registration leaves explicit pairing available", async () => {
+  const disabled = setup();
+  await disabled.manager.startAutomatically();
+  expect(disabled.factory).not.toHaveBeenCalled();
+  expect(disabled.manager.getSnapshot().status).toBe("stopped");
+
+  const createSession = mock(async (options) => {
+    if (options.savedRegistrationOnly) throw startFailure("registration-missing");
+    return {
+      end: mock(async () => {}),
+      logout: mock(async () => {}),
+      sendSelf: mock(async () => {}),
+    };
+  });
+  const enabled = setup({ unattendedEnabled: true, createSession });
+  await enabled.manager.startAutomatically();
+  expect(enabled.factory.mock.calls[0][0].savedRegistrationOnly).toBe(true);
+  expect(enabled.manager.getSnapshot()).toMatchObject({
+    status: "stopped",
+    recovery: { interventionReason: "registration-missing" },
+  });
+
+  await enabled.manager.start();
+  expect(enabled.factory.mock.calls[1][0].savedRegistrationOnly).toBe(false);
+  expect(enabled.manager.getSnapshot().status).toBe("starting");
+});
+
+test("manual and automatic Start calls share one unsettled factory promise", async () => {
+  const factoryGate = Promise.withResolvers();
+  const createSession = mock(async (options) => {
+    if (options.savedRegistrationOnly) await factoryGate.promise;
+    return {
+      end: mock(async () => {}),
+      logout: mock(async () => {}),
+      sendSelf: mock(async () => {}),
+    };
+  });
+  const { manager, factory } = setup({
+    unattendedEnabled: true,
+    createSession,
+  });
+  const automaticStart = manager.startAutomatically();
+  expect(factory).toHaveBeenCalledTimes(1);
+  expect(factory.mock.calls[0][0].savedRegistrationOnly).toBe(true);
+
+  expect(await manager.start()).toMatchObject({ status: "starting" });
+  expect(factory).toHaveBeenCalledTimes(1);
+
+  factoryGate.resolve();
+  await automaticStart;
+  expect(factory).toHaveBeenCalledTimes(1);
+});
+
+test("automatic pairing callbacks are hidden, closed, and blocked from replacement", async () => {
+  const clock = createFakeClock();
+  const end = mock(async () => {});
+  const createSession = mock(async (options) => {
+    if (options.savedRegistrationOnly) options.onPairing("synthetic private QR");
+    return { end, logout: mock(async () => {}), sendSelf: mock(async () => {}) };
+  });
+  const { manager, factory, attempts } = setup({
+    unattendedEnabled: true,
+    clock,
+    createSession,
+  });
+  end.mockImplementation(async () =>
+    attempts[0].onClose({
+      reason: "automatic-pairing-required",
+      closeConfirmed: true,
+    }),
+  );
+
+  await manager.startAutomatically();
+
+  expect(manager.getSnapshot()).toMatchObject({
+    status: "stopped",
+    qr: null,
+    recovery: {
+      nextRetryAt: null,
+      interventionReason: "automatic-pairing-required",
+    },
+  });
+  expect(end).toHaveBeenCalledTimes(1);
+  expect(factory).toHaveBeenCalledTimes(1);
+  expect(clock.size).toBe(0);
+  expect(JSON.stringify(manager.getSnapshot())).not.toContain("synthetic private QR");
+
+  await manager.start();
+  expect(factory).toHaveBeenCalledTimes(2);
+  expect(factory.mock.calls.at(-1)[0].savedRegistrationOnly).toBe(false);
+  expect(manager.getSnapshot().status).toBe("starting");
+});
+
+test("successful logout prevents saved-account resume in a fresh unattended controller", async () => {
+  let registrationAvailable = true;
+  const createSession = mock(async (options) => {
+    if (options.savedRegistrationOnly && !registrationAvailable) {
+      throw startFailure("registration-missing");
+    }
+    return {
+      logout: mock(async () =>
+        options.onClose({
+          loggedOut: true,
+          reason: "logged-out-or-rejected",
+          closeConfirmed: true,
+        }),
+      ),
+      end: mock(async () => {}),
+      sendSelf: mock(async () => {}),
+    };
+  });
+  const clearAuth = mock(async () => {
+    registrationAvailable = false;
+  });
+  const firstProcess = setup({
+    createSession,
+    clearAuth,
+    unattendedEnabled: true,
+  });
+  await firstProcess.manager.start();
+  firstProcess.attempts[0].onOpen();
+  await firstProcess.manager.logout();
+  expect(clearAuth).toHaveBeenCalledTimes(1);
+  expect(registrationAvailable).toBe(false);
+
+  const restartedProcess = setup({ createSession, unattendedEnabled: true });
+  await restartedProcess.manager.startAutomatically();
+  expect(restartedProcess.factory.mock.calls[0][0].savedRegistrationOnly).toBe(true);
+  expect(restartedProcess.manager.getSnapshot()).toMatchObject({
+    status: "stopped",
+    recovery: { interventionReason: "registration-missing" },
+  });
 });
 
 test("start creates one session and repeated start actions reuse the active state", async () => {
@@ -198,12 +382,48 @@ test("text and image events carry opaque account-scoped approval state and appro
 });
 
 test("cancel ends a pending socket, clears the QR, and returns to stopped", async () => {
-  const { manager, callbacks } = setup();
+  const clock = createFakeClock();
+  const { manager, callbacks, factory } = setup({ unattendedEnabled: true, clock });
   await manager.start();
   callbacks().onPairing("synthetic QR");
 
   const state = await manager.cancel();
   expect(state).toMatchObject({ status: "stopped", qr: null, messages: [] });
+  callbacks().onOpen();
+  expect(manager.getSnapshot().status).toBe("stopped");
+  expect(factory).toHaveBeenCalledTimes(1);
+  expect(clock.size).toBe(0);
+});
+
+test("pairing cancellation waits for factory settlement and fences late open callbacks", async () => {
+  const factoryGate = Promise.withResolvers();
+  let activeSockets = 0;
+  const createSession = mock(async (handlers) => {
+    activeSockets += 1;
+    await factoryGate.promise;
+    return {
+      logout: mock(async () => {}),
+      end: mock(async () => {
+        activeSockets -= 1;
+        handlers.onClose({ reason: "connection-closed", closeConfirmed: true });
+      }),
+      sendSelf: mock(async () => {}),
+    };
+  });
+  const { manager, factory, attempts } = setup({ createSession });
+  const starting = manager.start();
+  expect(factory).toHaveBeenCalledTimes(1);
+  const cancelling = manager.cancel();
+  expect(manager.getSnapshot().status).toBe("stopping");
+  attempts[0].onOpen();
+  expect(manager.getSnapshot().status).toBe("stopping");
+
+  factoryGate.resolve();
+  await Promise.all([starting, cancelling]);
+  attempts[0].onOpen();
+  expect(manager.getSnapshot()).toMatchObject({ status: "stopped", qr: null });
+  expect(activeSockets).toBe(0);
+  expect(factory).toHaveBeenCalledTimes(1);
 });
 
 test("unexpected close clears QR and reports disconnection without reconnecting", async () => {
@@ -214,6 +434,286 @@ test("unexpected close clears QR and reports disconnection without reconnecting"
 
   expect(manager.getSnapshot()).toMatchObject({ status: "disconnected", qr: null });
   expect(factory).toHaveBeenCalledTimes(1);
+});
+
+test("unattended recovery retries only supported transient reasons after two seconds", async () => {
+  for (const reason of [
+    "connection-lost-or-timed-out",
+    "connection-closed",
+    "service-unavailable",
+    "restart-required",
+  ]) {
+    const clock = createFakeClock();
+    const { manager, factory, attempts } = setup({ unattendedEnabled: true, clock });
+    await manager.start();
+    attempts[0].onOpen();
+    attempts[0].onClose({ reason, closeConfirmed: true });
+
+    expect(manager.getSnapshot()).toMatchObject({
+      status: "reconnecting",
+      recovery: {
+        attempt: 1,
+        maxAttempts: 5,
+        nextRetryAt: new Date(clock.now() + 2000).toISOString(),
+        interventionReason: null,
+      },
+    });
+    expect(factory).toHaveBeenCalledTimes(1);
+
+    await clock.advance(1999);
+    expect(factory).toHaveBeenCalledTimes(1);
+    await clock.advance(1);
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(factory.mock.calls[1][0].savedRegistrationOnly).toBe(true);
+    expect(manager.getSnapshot().status).toBe("starting");
+  }
+});
+
+test("recovery uses the five finite delays and stops after the fifth replacement", async () => {
+  const clock = createFakeClock();
+  const { manager, factory, attempts } = setup({ unattendedEnabled: true, clock });
+  await manager.start();
+  attempts[0].onClose({ reason: "connection-lost-or-timed-out", closeConfirmed: true });
+
+  for (const [index, delay] of [2000, 4000, 8000, 16000, 30000].entries()) {
+    expect(manager.getSnapshot().recovery.nextRetryAt).toBe(
+      new Date(clock.now() + delay).toISOString(),
+    );
+    await clock.advance(delay);
+    expect(factory).toHaveBeenCalledTimes(index + 2);
+    expect(factory.mock.calls[index + 1][0].savedRegistrationOnly).toBe(true);
+    attempts[index + 1].onClose({
+      reason: "connection-closed",
+      closeConfirmed: true,
+    });
+  }
+
+  expect(manager.getSnapshot()).toMatchObject({
+    status: "disconnected",
+    recovery: {
+      attempt: 5,
+      maxAttempts: 5,
+      nextRetryAt: null,
+      interventionReason: "recovery-exhausted",
+    },
+  });
+  expect(clock.size).toBe(0);
+  expect(factory).toHaveBeenCalledTimes(6);
+});
+
+test("a fresh manual Start after exhaustion resets the budget and reuses the single slot", async () => {
+  const clock = createFakeClock();
+  const { manager, factory, attempts } = setup({ unattendedEnabled: true, clock });
+  await manager.start();
+  attempts[0].onClose({ reason: "connection-closed", closeConfirmed: true });
+
+  for (const delay of [2000, 4000, 8000, 16000, 30000]) {
+    await clock.advance(delay);
+    attempts.at(-1).onClose({ reason: "connection-closed", closeConfirmed: true });
+  }
+  expect(manager.getSnapshot().recovery).toMatchObject({
+    attempt: 5,
+    interventionReason: "recovery-exhausted",
+  });
+
+  await manager.start();
+  expect(factory).toHaveBeenCalledTimes(7);
+  expect(factory.mock.calls.at(-1)[0].savedRegistrationOnly).toBe(false);
+  expect(manager.getSnapshot()).toMatchObject({
+    status: "starting",
+    recovery: { attempt: 0, interventionReason: null },
+  });
+  attempts.at(-1).onClose({ reason: "service-unavailable", closeConfirmed: true });
+  expect(manager.getSnapshot().recovery.attempt).toBe(1);
+  expect(clock.size).toBe(1);
+});
+
+test("repeated Start and a close-before-factory-settlement cannot create parallel sockets", async () => {
+  const clock = createFakeClock();
+  const firstFactoryGate = Promise.withResolvers();
+  let activeSockets = 0;
+  let factoryCalls = 0;
+  const createSession = mock(async (handlers) => {
+    factoryCalls += 1;
+    expect(activeSockets).toBe(0);
+    activeSockets += 1;
+    if (factoryCalls === 1) await firstFactoryGate.promise;
+    return {
+      logout: async () => {
+        activeSockets -= 1;
+        handlers.onClose({ loggedOut: true, closeConfirmed: true });
+      },
+      end: async () => {
+        activeSockets -= 1;
+        handlers.onClose({ reason: "connection-closed", closeConfirmed: true });
+      },
+      sendSelf: async () => {},
+    };
+  });
+  const { manager, factory, attempts } = setup({
+    unattendedEnabled: true,
+    clock,
+    createSession,
+  });
+
+  const firstStart = manager.start();
+  expect(factory).toHaveBeenCalledTimes(1);
+  expect(await manager.start()).toMatchObject({ status: "starting" });
+  expect(factory).toHaveBeenCalledTimes(1);
+  activeSockets -= 1;
+  attempts[0].onClose({ reason: "connection-lost-or-timed-out", closeConfirmed: true });
+
+  const dueRetry = clock.advance(2000);
+  await Promise.resolve();
+  expect(factory).toHaveBeenCalledTimes(1);
+  firstFactoryGate.resolve();
+  await Promise.all([firstStart, dueRetry]);
+
+  expect(factory).toHaveBeenCalledTimes(2);
+  expect(activeSockets).toBe(1);
+  expect(manager.getSnapshot().status).toBe("starting");
+});
+
+test("terminal, unknown, and generic startup failures never schedule automatic recovery", async () => {
+  for (const [reason, status, interventionReason] of [
+    ["logged-out-or-rejected", "logged-out", "logged-out-or-rejected"],
+    ["forbidden", "review-required", "forbidden"],
+    ["multidevice-mismatch", "review-required", "multidevice-mismatch"],
+    ["connection-replaced", "review-required", "connection-replaced"],
+    ["bad-session", "review-required", "bad-session"],
+    ["unknown", "review-required", "unknown-disconnect"],
+    ["unrecognized raw private failure", "review-required", "unknown-disconnect"],
+  ]) {
+    const clock = createFakeClock();
+    const { manager, factory, attempts } = setup({ unattendedEnabled: true, clock });
+    await manager.start();
+    attempts[0].onClose({ reason, closeConfirmed: true });
+    expect(manager.getSnapshot()).toMatchObject({
+      status,
+      recovery: { interventionReason },
+    });
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(clock.size).toBe(0);
+    expect(JSON.stringify(manager.getSnapshot())).not.toContain("raw private failure");
+  }
+
+  const clock = createFakeClock();
+  const failingFactory = mock(async () => {
+    throw new Error("private startup details");
+  });
+  const { manager, factory } = setup({
+    unattendedEnabled: true,
+    clock,
+    createSession: failingFactory,
+  });
+  await manager.start();
+  expect(manager.getSnapshot()).toMatchObject({
+    status: "review-required",
+    recovery: { interventionReason: "startup-failed", nextRetryAt: null },
+  });
+  expect(factory).toHaveBeenCalledTimes(1);
+  expect(clock.size).toBe(0);
+  expect(JSON.stringify(manager.getSnapshot())).not.toContain("private startup details");
+});
+
+test("credential-save failure stops the session and requires review without reconnecting", async () => {
+  const clock = createFakeClock();
+  const end = mock(async () => {});
+  const { manager, factory, attempts } = setup({
+    unattendedEnabled: true,
+    clock,
+    session: { end },
+  });
+  await manager.start();
+  attempts[0].onOpen();
+  attempts[0].onCredentialSaveFailure();
+
+  expect(manager.getSnapshot()).toMatchObject({
+    status: "review-required",
+    recovery: { interventionReason: "credential-save-failed", nextRetryAt: null },
+  });
+  await Promise.resolve();
+  expect(end).toHaveBeenCalledTimes(1);
+  expect(factory).toHaveBeenCalledTimes(1);
+  expect(clock.size).toBe(0);
+});
+
+test("brief connection flapping preserves the budget and 60 stable seconds reset it", async () => {
+  const clock = createFakeClock();
+  const { manager, factory, attempts } = setup({ unattendedEnabled: true, clock });
+
+  await manager.start();
+  attempts[0].onOpen();
+  await clock.advance(20_000);
+  attempts[0].onClose({ reason: "connection-lost-or-timed-out", closeConfirmed: true });
+  expect(manager.getSnapshot().recovery.attempt).toBe(1);
+
+  await clock.advance(2000);
+  expect(factory).toHaveBeenCalledTimes(2);
+  attempts[1].onOpen();
+  await clock.advance(59_999);
+  expect(manager.getSnapshot().recovery.attempt).toBe(1);
+  attempts[1].onClose({ reason: "connection-closed", closeConfirmed: true });
+  expect(manager.getSnapshot().recovery.attempt).toBe(2);
+
+  await clock.advance(4000);
+  expect(factory).toHaveBeenCalledTimes(3);
+  attempts[2].onOpen();
+  await clock.advance(60_000);
+  expect(manager.getSnapshot().recovery).toMatchObject({
+    attempt: 0,
+    interventionReason: null,
+    nextRetryAt: null,
+  });
+  attempts[2].onClose({ reason: "service-unavailable", closeConfirmed: true });
+  expect(manager.getSnapshot().recovery.attempt).toBe(1);
+});
+
+test("uncertain termination blocks replacement even if a later close event arrives", async () => {
+  const clock = createFakeClock();
+  const { manager, factory, attempts } = setup({ unattendedEnabled: true, clock });
+  await manager.start();
+  attempts[0].onClose({
+    reason: "connection-lost-or-timed-out",
+    closeConfirmed: false,
+  });
+
+  expect(manager.getSnapshot()).toMatchObject({
+    status: "review-required",
+    recovery: {
+      nextRetryAt: null,
+      interventionReason: "socket-termination-uncertain",
+    },
+  });
+  attempts[0].onClose({
+    reason: "connection-closed",
+    closeConfirmed: true,
+  });
+  await clock.advance(60_000);
+  expect(factory).toHaveBeenCalledTimes(1);
+  expect(manager.getSnapshot()).toMatchObject({
+    status: "review-required",
+    recovery: { interventionReason: "socket-termination-uncertain" },
+  });
+});
+
+test("old generation events cannot change state or schedule work after a replacement starts", async () => {
+  const clock = createFakeClock();
+  const { manager, factory, attempts } = setup({ clock });
+  await manager.start();
+  attempts[0].onClose({ loggedOut: false });
+  expect(manager.getSnapshot().status).toBe("disconnected");
+
+  await manager.start();
+  expect(factory).toHaveBeenCalledTimes(2);
+  expect(manager.getSnapshot().status).toBe("starting");
+  attempts[0].onOpen();
+  attempts[0].onClose({
+    reason: "connection-lost-or-timed-out",
+    closeConfirmed: true,
+  });
+  expect(manager.getSnapshot().status).toBe("starting");
+  expect(clock.size).toBe(0);
 });
 
 test("live projection includes direct incoming/outgoing and self-chat text only", () => {
@@ -345,8 +845,11 @@ test("approval marking only updates retained events without changing the 200-eve
 
 test("successful logout ends the socket before auth cleanup and clears messages", async () => {
   const order = [];
+  const clock = createFakeClock();
   let callbacks;
   const { manager, factory } = setup({
+    unattendedEnabled: true,
+    clock,
     clearAuth: async () => {
       order.push("remove local auth");
     },
@@ -361,6 +864,7 @@ test("successful logout ends the socket before auth cleanup and clears messages"
   await manager.start();
   callbacks = managerCallbacks(factory);
   callbacks.onOpen();
+  expect(clock.size).toBe(1);
   callbacks.onUpsert(
     {
       type: "notify",
@@ -373,7 +877,11 @@ test("successful logout ends the socket before auth cleanup and clears messages"
   const state = await manager.logout();
   expect(order).toEqual(["remote unlink", "old socket ended", "remove local auth"]);
   expect(state).toMatchObject({ status: "stopped", qr: null, messages: [] });
+  expect(clock.size).toBe(0);
   expect(managerCallbacks(factory)).toBe(callbacks);
+  callbacks.onOpen();
+  expect(manager.getSnapshot().status).toBe("stopped");
+  expect(factory).toHaveBeenCalledTimes(1);
 });
 
 function managerCallbacks(factory) {
@@ -470,12 +978,19 @@ test("clearTransient removes messages and QR without writing diagnostics", async
 });
 
 test("process shutdown clears the feed and ends the socket without logout or auth cleanup", async () => {
+  const clock = createFakeClock();
   const logout = mock(async () => {});
   const end = mock(async () => {});
   const clearAuth = mock(async () => {});
-  const { manager, callbacks } = setup({ clearAuth, session: { logout, end } });
+  const { manager, callbacks } = setup({
+    clearAuth,
+    session: { logout, end },
+    unattendedEnabled: true,
+    clock,
+  });
   await manager.start();
   callbacks().onOpen();
+  expect(clock.size).toBe(1);
   callbacks().onUpsert(
     {
       type: "notify",
@@ -488,6 +1003,30 @@ test("process shutdown clears the feed and ends the socket without logout or aut
   await manager.stopForProcessExit();
   expect(manager.getSnapshot().messages).toEqual([]);
   expect(end).toHaveBeenCalledTimes(1);
+  expect(clock.size).toBe(0);
+  await clock.advance(60_000);
+  expect(manager.getSnapshot().recovery.attempt).toBe(0);
   expect(logout).not.toHaveBeenCalled();
+  expect(clearAuth).not.toHaveBeenCalled();
+});
+
+test("shutdown cancels queued recovery without replacing the closed session or deleting auth", async () => {
+  const clock = createFakeClock();
+  const end = mock(async () => {});
+  const clearAuth = mock(async () => {});
+  const { manager, factory, attempts } = setup({
+    clearAuth,
+    session: { end },
+    unattendedEnabled: true,
+    clock,
+  });
+  await manager.start();
+  attempts[0].onClose({ reason: "connection-closed", closeConfirmed: true });
+  expect(clock.size).toBe(1);
+
+  await manager.stopForProcessExit();
+  expect(clock.size).toBe(0);
+  await clock.advance(60_000);
+  expect(factory).toHaveBeenCalledTimes(1);
   expect(clearAuth).not.toHaveBeenCalled();
 });

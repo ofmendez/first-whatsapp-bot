@@ -1,3 +1,7 @@
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
 import { expect, mock, spyOn, test } from "bun:test";
 
 // Mock external facilities before importing application modules: no real auth or sockets.
@@ -23,15 +27,55 @@ mock.module("@whiskeysockets/baileys", () => ({
   default: makeSocket,
   downloadMediaMessage: mediaDownload,
   useMultiFileAuthState: auth,
-  DisconnectReason: { loggedOut: 401 },
+  DisconnectReason: {
+    loggedOut: 401,
+    forbidden: 403,
+    connectionLost: 408,
+    timedOut: 408,
+    multideviceMismatch: 411,
+    connectionClosed: 428,
+    connectionReplaced: 440,
+    badSession: 500,
+    unavailableService: 503,
+    restartRequired: 515,
+  },
 }));
 mock.module("pino", () => ({ default: pino }));
 
 const { replyForCommand } = await import("@/src/commands.js");
 const { processUpsert } = await import("@/src/messages.js");
 const { createWhatsAppSession, downloadImageStream } = await import("@/src/whatsapp.js");
+const { AlbumImageCatalog } = await import("@/src/album-catalog.js");
+const { createControlHandler } = await import("@/src/control-server.js");
+const { createDashboardSessionService, dashboardCookie } = await import("@/src/dashboard-auth.js");
+const { ImageReceiver } = await import("@/src/image-receiver.js");
+const { ReceivedImageStore } = await import("@/src/received-image-store.js");
+const { SessionController } = await import("@/src/session-controller.js");
 const importAuthCalls = auth.mock.calls.length;
 const importSocketCalls = makeSocket.mock.calls.length;
+
+function isolatedSocket() {
+  const events = new Map();
+  const socket = {
+    ev: {
+      on: mock((event, handler) => events.set(event, handler)),
+    },
+    end: mock(async () => events.get("connection.update")?.({ connection: "close" })),
+    logout: mock(async () => events.get("connection.update")?.({ connection: "close" })),
+    sendMessage: mock(async () => {}),
+    user: { id: "synthetic@s.whatsapp.net" },
+  };
+  return { socket, events };
+}
+
+async function withTemporaryAuthDirectory(run) {
+  const root = await mkdtemp(join(tmpdir(), "whatsapp-adapter-auth-"));
+  try {
+    return await run(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
 
 const reply = { text: "Pong! Running on Bun 🚀" };
 const incoming = (message, remoteJid = "synthetic@s.whatsapp.net", fromMe = false) => ({
@@ -440,12 +484,16 @@ test("explicit session factory wires one socket, persistence, transient pairing,
       });
     });
     await session.logout();
-    expect(onClose.mock.calls).toEqual([[{ loggedOut: true }]]);
+    expect(onClose.mock.calls).toEqual([
+      [{ loggedOut: true, reason: "logged-out-or-rejected", closeConfirmed: true }],
+    ]);
 
     const secondSession = await createWhatsAppSession({ onPairing, onOpen, onClose, onUpsert });
     socket.end.mockImplementation(() => handlers.get("connection.update")({ connection: "close" }));
     await secondSession.end();
-    expect(onClose.mock.calls.at(-1)).toEqual([{ loggedOut: false }]);
+    expect(onClose.mock.calls.at(-1)).toEqual([
+      { loggedOut: false, reason: "unknown", closeConfirmed: true },
+    ]);
 
     const failure = new Error("synthetic event send failure");
     socket.sendMessage.mockRejectedValueOnce(failure);
@@ -453,6 +501,248 @@ test("explicit session factory wires one socket, persistence, transient pairing,
   } finally {
     log.mockRestore();
   }
+});
+
+test("saved-registration-only startup skips missing or unregistered auth without loading a socket", async () => {
+  await withTemporaryAuthDirectory(async (root) => {
+    const absentDirectory = join(root, "absent");
+    const unregisteredDirectory = join(root, "unregistered");
+    await mkdir(unregisteredDirectory);
+    const unregisteredAuth = JSON.stringify({ registered: false, synthetic: "private fixture" });
+    await writeFile(join(unregisteredDirectory, "creds.json"), unregisteredAuth, { mode: 0o600 });
+
+    const loadAuthState = mock(async () => ({
+      state: { creds: { registered: false }, keys: {} },
+      saveCreds: mock(async () => {}),
+    }));
+    const makeSocket = mock(() => isolatedSocket().socket);
+
+    for (const authDirectory of [absentDirectory, root, unregisteredDirectory]) {
+      await expect(
+        createWhatsAppSession(
+          { savedRegistrationOnly: true },
+          {
+            authDirectory,
+            loadAuthState,
+            makeSocket,
+          },
+        ),
+      ).rejects.toMatchObject({
+        name: "WhatsAppSessionStartError",
+        code: "registration-missing",
+      });
+    }
+
+    expect(loadAuthState).not.toHaveBeenCalled();
+    expect(makeSocket).not.toHaveBeenCalled();
+    expect(await readFile(join(unregisteredDirectory, "creds.json"), "utf8")).toBe(
+      unregisteredAuth,
+    );
+  });
+});
+
+test("saved-registration-only startup classifies malformed and unreadable auth without exposing it", async () => {
+  await withTemporaryAuthDirectory(async (root) => {
+    const malformedDirectory = join(root, "malformed");
+    const unreadableDirectory = join(root, "unreadable");
+    await mkdir(malformedDirectory);
+    await mkdir(unreadableDirectory);
+    const privateFixture = "synthetic private credential fixture";
+    await writeFile(join(malformedDirectory, "creds.json"), `{${privateFixture}`, {
+      mode: 0o600,
+    });
+    await writeFile(join(unreadableDirectory, "creds.json"), JSON.stringify({ registered: true }), {
+      mode: 0o600,
+    });
+
+    const makeSocket = mock(() => isolatedSocket().socket);
+    const loadAuthState = mock(async () => ({
+      state: { creds: { registered: true }, keys: {} },
+      saveCreds: mock(async () => {}),
+    }));
+    const unreadableFileSystem = {
+      lstat,
+      readdir,
+      readFile: async (path, encoding) => {
+        if (path === join(unreadableDirectory, "creds.json")) {
+          throw Object.assign(new Error(privateFixture), { code: "EACCES" });
+        }
+        return readFile(path, encoding);
+      },
+    };
+
+    await expect(
+      createWhatsAppSession(
+        { savedRegistrationOnly: true },
+        {
+          authDirectory: malformedDirectory,
+          loadAuthState,
+          makeSocket,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "saved-auth-malformed" });
+    await expect(
+      createWhatsAppSession(
+        { savedRegistrationOnly: true },
+        {
+          authDirectory: unreadableDirectory,
+          fileSystem: unreadableFileSystem,
+          loadAuthState,
+          makeSocket,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "saved-auth-unavailable" });
+
+    expect(loadAuthState).not.toHaveBeenCalled();
+    expect(makeSocket).not.toHaveBeenCalled();
+    expect(await readFile(join(malformedDirectory, "creds.json"), "utf8")).toContain(
+      privateFixture,
+    );
+    expect(JSON.stringify(loadAuthState.mock.calls)).not.toContain(privateFixture);
+    expect(JSON.stringify(makeSocket.mock.calls)).not.toContain(privateFixture);
+  });
+});
+
+test("saved-registration-only startup verifies loaded credentials before creating a socket", async () => {
+  await withTemporaryAuthDirectory(async (authDirectory) => {
+    await writeFile(
+      join(authDirectory, "creds.json"),
+      JSON.stringify({ registered: true, synthetic: "private fixture" }),
+      { mode: 0o600 },
+    );
+    const loadAuthState = mock(async () => ({
+      state: { creds: { registered: false }, keys: {} },
+      saveCreds: mock(async () => {}),
+    }));
+    const makeSocket = mock(() => isolatedSocket().socket);
+
+    await expect(
+      createWhatsAppSession(
+        { savedRegistrationOnly: true },
+        {
+          authDirectory,
+          loadAuthState,
+          makeSocket,
+        },
+      ),
+    ).rejects.toMatchObject({
+      name: "WhatsAppSessionStartError",
+      code: "registration-missing",
+    });
+
+    expect(loadAuthState).toHaveBeenCalledTimes(1);
+    expect(makeSocket).not.toHaveBeenCalled();
+  });
+});
+
+test("adapter reports only fixed disconnect categories to its controller", async () => {
+  for (const [statusCode, reason] of [
+    [401, "logged-out-or-rejected"],
+    [403, "forbidden"],
+    [408, "connection-lost-or-timed-out"],
+    [411, "multidevice-mismatch"],
+    [428, "connection-closed"],
+    [440, "connection-replaced"],
+    [500, "bad-session"],
+    [503, "service-unavailable"],
+    [515, "restart-required"],
+    [499, "unknown"],
+  ]) {
+    const { socket, events } = isolatedSocket();
+    const onClose = mock(() => {});
+    await createWhatsAppSession(
+      { onClose },
+      {
+        loadAuthState: async () => ({
+          state: { creds: { registered: false }, keys: {} },
+          saveCreds: mock(async () => {}),
+        }),
+        makeSocket: () => socket,
+        loggerFactory: () => ({}),
+      },
+    );
+    events.get("connection.update")({
+      connection: "close",
+      lastDisconnect: { error: { output: { statusCode }, message: "private adapter error" } },
+    });
+
+    expect(onClose).toHaveBeenCalledWith({
+      loggedOut: statusCode === 401,
+      reason,
+      closeConfirmed: true,
+    });
+    expect(JSON.stringify(onClose.mock.calls)).not.toContain("private adapter error");
+  }
+});
+
+test("automatic QR data is suppressed and its socket must confirm closure", async () => {
+  await withTemporaryAuthDirectory(async (authDirectory) => {
+    await writeFile(
+      join(authDirectory, "creds.json"),
+      JSON.stringify({ registered: true, synthetic: "private fixture" }),
+      { mode: 0o600 },
+    );
+    const { socket, events } = isolatedSocket();
+    const onPairing = mock(() => {});
+    const onClose = mock(() => {});
+    const session = await createWhatsAppSession(
+      { savedRegistrationOnly: true, onPairing, onClose },
+      {
+        authDirectory,
+        loadAuthState: async () => ({
+          state: { creds: { registered: true }, keys: {} },
+          saveCreds: mock(async () => {}),
+        }),
+        makeSocket: () => socket,
+        loggerFactory: () => ({}),
+      },
+    );
+
+    events.get("connection.update")({ qr: "synthetic private QR payload" });
+    await session.end();
+
+    expect(onPairing).not.toHaveBeenCalled();
+    expect(socket.end).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith({
+      loggedOut: false,
+      reason: "automatic-pairing-required",
+      closeConfirmed: true,
+    });
+    expect(JSON.stringify(onClose.mock.calls)).not.toContain("synthetic private QR payload");
+  });
+});
+
+test("automatic QR termination reports uncertain closure and never claims it is safe", async () => {
+  await withTemporaryAuthDirectory(async (authDirectory) => {
+    await writeFile(join(authDirectory, "creds.json"), JSON.stringify({ registered: true }), {
+      mode: 0o600,
+    });
+    const { socket, events } = isolatedSocket();
+    socket.end.mockImplementation(async () => {});
+    const onClose = mock(() => {});
+    await createWhatsAppSession(
+      { savedRegistrationOnly: true, onClose },
+      {
+        authDirectory,
+        closeTimeoutMs: 2,
+        loadAuthState: async () => ({
+          state: { creds: { registered: true }, keys: {} },
+          saveCreds: mock(async () => {}),
+        }),
+        makeSocket: () => socket,
+        loggerFactory: () => ({}),
+      },
+    );
+
+    events.get("connection.update")({ qr: "synthetic private QR payload" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(onClose).toHaveBeenCalledWith({
+      loggedOut: false,
+      reason: "socket-termination-uncertain",
+      closeConfirmed: false,
+    });
+  });
 });
 
 async function withDebug(value, run) {
@@ -489,7 +779,11 @@ test("diagnostics are disabled unless DEBUG is exactly true", async () => {
       expect(info).not.toHaveBeenCalled();
       expect(onPairing).toHaveBeenCalledWith("private QR");
       expect(onOpen).toHaveBeenCalledTimes(1);
-      expect(onClose).toHaveBeenCalledWith({ loggedOut: true });
+      expect(onClose).toHaveBeenCalledWith({
+        loggedOut: true,
+        reason: "logged-out-or-rejected",
+        closeConfirmed: true,
+      });
       auth.mockRejectedValueOnce(new Error("private auth error"));
       await expect(createWhatsAppSession({})).rejects.toThrow("private auth error");
       expect(info).not.toHaveBeenCalled();
@@ -536,7 +830,11 @@ test("DEBUG diagnostics expose only fixed pairing stages and safe disconnect cod
     ]);
     expect(JSON.stringify(info.mock.calls)).not.toContain(privateValue);
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledWith({ loggedOut: false });
+    expect(onClose).toHaveBeenCalledWith({
+      loggedOut: false,
+      reason: "restart-required",
+      closeConfirmed: true,
+    });
   });
 });
 
@@ -576,13 +874,15 @@ test("DEBUG diagnostics distinguish rejection, timeout, and unknown codes withou
 test("DEBUG diagnostics report credential and startup failures without private errors", async () => {
   await withDebug("true", async (info) => {
     const privateError = new Error("private authentication material");
-    await createWhatsAppSession({});
+    const onCredentialSaveFailure = mock(() => {});
+    await createWhatsAppSession({ onCredentialSaveFailure });
     saveCreds.mockRejectedValueOnce(privateError).mockRejectedValueOnce(privateError);
     await handlers.get("creds.update")();
     await handlers.get("creds.update")();
     expect(
       info.mock.calls.filter(([, record]) => record.event === "credentials-save-failed"),
     ).toHaveLength(1);
+    expect(onCredentialSaveFailure).toHaveBeenCalledTimes(1);
     expect(info.mock.calls.at(-1)).toEqual([
       "[whatsapp]",
       { event: "credentials-save-failed", stage: "starting" },
@@ -605,12 +905,204 @@ test("DEBUG diagnostics report credential and startup failures without private e
   });
 });
 
+test("commands and consent-approved images continue with zero dashboard subscribers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "whatsapp-unattended-processing-"));
+  const origin = "http://127.0.0.1:3218";
+  const accountJid = "synthetic-owner@s.whatsapp.net";
+  const chatJid = "synthetic-contact@s.whatsapp.net";
+  const imageBytes = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  ]);
+  const socketEvents = new Map();
+  const pingWaiters = new Map();
+  const savedWaiters = new Map();
+  let pingCount = 0;
+  let savedCount = 0;
+  let activeSubscribers = 0;
+  let manager;
+
+  const socket = {
+    ev: { on: (event, handler) => socketEvents.set(event, handler) },
+    end: mock(async () => socketEvents.get("connection.update")?.({ connection: "close" })),
+    logout: mock(async () => {}),
+    sendMessage: mock(async (_jid, content) => {
+      if (content.text !== "Pong! Running on Bun 🚀") return;
+      pingCount += 1;
+      pingWaiters.get(pingCount)?.resolve();
+    }),
+    user: { id: accountJid },
+  };
+  const waitForPing = (count) => {
+    if (pingCount >= count) return Promise.resolve();
+    const gate = Promise.withResolvers();
+    pingWaiters.set(count, gate);
+    return gate.promise;
+  };
+  const waitForSaved = (count) => {
+    if (savedCount >= count) return Promise.resolve();
+    const gate = Promise.withResolvers();
+    savedWaiters.set(count, gate);
+    return gate.promise;
+  };
+  const textUpsert = (id) => ({
+    type: "notify",
+    messages: [
+      {
+        key: { id, remoteJid: chatJid, fromMe: false },
+        message: { conversation: "!ping" },
+      },
+    ],
+  });
+  const imageUpsert = (id) => ({
+    type: "notify",
+    messages: [
+      {
+        key: { id, remoteJid: chatJid, fromMe: false },
+        message: { imageMessage: { mimetype: "image/png" } },
+        messageTimestamp: 1_800_000_000,
+        pushName: "Synthetic Contact",
+      },
+    ],
+  });
+
+  try {
+    const store = new ReceivedImageStore({ root });
+    const approval = await store.approveConversation({
+      accountJid,
+      chatJid,
+      displayName: "Synthetic Contact",
+    });
+    const albumCatalog = new AlbumImageCatalog({ store });
+    await albumCatalog.refresh();
+    expect(albumCatalog.isConversationApproved(approval.conversationId)).toBe(true);
+
+    const imageReceiver = new ImageReceiver({
+      store,
+      download: async () => Readable.from([imageBytes]),
+      onSaved: () => {
+        savedCount += 1;
+        savedWaiters.get(savedCount)?.resolve();
+      },
+      isConversationApproved: (conversationId) =>
+        albumCatalog.isConversationApproved(conversationId),
+    });
+    manager = new SessionController({
+      createSession: (options) =>
+        createWhatsAppSession(options, {
+          loadAuthState: async () => ({
+            state: { creds: { registered: false }, keys: {} },
+            saveCreds: mock(async () => {}),
+          }),
+          makeSocket: () => socket,
+          loggerFactory: () => ({}),
+        }),
+      imageReceiver,
+      albumService: store,
+      albumCatalog,
+    });
+    const subscribe = manager.subscribe.bind(manager);
+    manager.subscribe = (listener) => {
+      activeSubscribers += 1;
+      const unsubscribe = subscribe(listener);
+      let active = true;
+      return () => {
+        if (active) {
+          active = false;
+          activeSubscribers -= 1;
+        }
+        unsubscribe();
+      };
+    };
+
+    await manager.start();
+    socketEvents.get("connection.update")({ connection: "open" });
+    expect(manager.getSnapshot().status).toBe("connected");
+    expect(activeSubscribers).toBe(0);
+
+    const firstPing = waitForPing(1);
+    socketEvents.get("messages.upsert")(textUpsert("zero-subscriber-ping"));
+    await firstPing;
+    const firstImage = waitForSaved(1);
+    socketEvents.get("messages.upsert")(imageUpsert("zero-subscriber-image"));
+    await firstImage;
+    expect(activeSubscribers).toBe(0);
+
+    const dashboardAuth = createDashboardSessionService("synthetic owner passphrase");
+    const dashboardToken = dashboardAuth.createSession();
+    const handler = createControlHandler({
+      manager,
+      mediaStore: store,
+      albumCatalog,
+      dashboardAuth,
+      expectedOrigin: origin,
+    });
+    const abort = new AbortController();
+    const eventResponse = await handler(
+      new Request(`${origin}/api/events`, {
+        headers: { Cookie: dashboardCookie(dashboardToken) },
+        signal: abort.signal,
+      }),
+    );
+    const eventReader = eventResponse.body.getReader();
+    await eventReader.read();
+    expect(activeSubscribers).toBe(1);
+    abort.abort();
+    await eventReader.cancel().catch(() => {});
+    expect(activeSubscribers).toBe(0);
+
+    const signOut = await handler(
+      new Request(`${origin}/api/auth/logout`, {
+        method: "POST",
+        headers: {
+          Cookie: dashboardCookie(dashboardToken),
+          Origin: origin,
+          "Sec-Fetch-Site": "same-origin",
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      }),
+    );
+    expect(signOut.status).toBe(200);
+    expect(socket.logout).not.toHaveBeenCalled();
+    expect(manager.getSnapshot().status).toBe("connected");
+
+    const postSignOutPing = waitForPing(2);
+    socketEvents.get("messages.upsert")(textUpsert("post-signout-ping"));
+    await postSignOutPing;
+    const postSignOutImage = waitForSaved(2);
+    socketEvents.get("messages.upsert")(imageUpsert("post-signout-image"));
+    await postSignOutImage;
+    await albumCatalog.refresh();
+
+    const page = await albumCatalog.listPage({ limit: 24 });
+    expect(page.items).toHaveLength(2);
+    const savedActivity = manager
+      .getSnapshot()
+      .messages.filter((message) => message.kind === "image");
+    expect(savedActivity).toHaveLength(2);
+    expect(savedActivity.every((message) => message.albumed)).toBe(true);
+    expect(manager.getSnapshot().status).toBe("connected");
+    expect(activeSubscribers).toBe(0);
+  } finally {
+    if (manager) await manager.stopForProcessExit();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("importing the application entry point does not open a WhatsApp session", async () => {
   const authCalls = auth.mock.calls.length;
   const socketCalls = makeSocket.mock.calls.length;
   await import("@/index.js");
   expect(auth.mock.calls.length).toBe(authCalls);
   expect(makeSocket.mock.calls.length).toBe(socketCalls);
+});
+
+test("WHATSAPP_AUTOSTART is enabled only by the exact string true", async () => {
+  const { isWhatsAppAutostartEnabled } = await import("@/index.js");
+  for (const value of [undefined, "", "false", "0", "TRUE", " true", "true "]) {
+    expect(isWhatsAppAutostartEnabled(value)).toBe(false);
+  }
+  expect(isWhatsAppAutostartEnabled("true")).toBe(true);
 });
 
 test("root auth directory is ignored using synthetic paths", () => {

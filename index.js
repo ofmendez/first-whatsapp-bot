@@ -20,8 +20,13 @@ function panelPort(value) {
   return port;
 }
 
+export function isWhatsAppAutostartEnabled(value) {
+  return value === "true";
+}
+
 export async function startControlPanel() {
   const configuration = readDashboardConfig();
+  const unattendedEnabled = isWhatsAppAutostartEnabled(process.env.WHATSAPP_AUTOSTART);
   const dashboardAuth = createDashboardSessionService(configuration.dashboardPassphrase);
   const albumAuth = configuration.albumOrigin
     ? createAlbumSessionService(configuration.albumPassphrase)
@@ -48,6 +53,7 @@ export async function startControlPanel() {
       });
     },
     selfChatValidation: process.env.WHATSAPP_SELF_CHAT_VALIDATION ?? "not-run",
+    unattendedEnabled,
   });
 
   let server;
@@ -84,6 +90,7 @@ export async function startControlPanel() {
   process.once("exit", () => manager.clearTransient());
 
   console.log(`Control panel listening at http://127.0.0.1:${server.port}`);
+  if (unattendedEnabled) void manager.startAutomatically();
   return { manager, server, shutdown };
 }
 

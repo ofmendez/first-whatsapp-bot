@@ -14,6 +14,9 @@ const dashboardSignOutButton = byId("dashboard-sign-out-button");
 const pairingPanel = byId("pairing-panel");
 const pairingQr = byId("pairing-qr");
 const reviewPanel = byId("review-panel");
+const recoveryPanel = byId("recovery-panel");
+const recoveryHeading = byId("recovery-heading");
+const recoveryMessage = byId("recovery-message");
 const activityList = byId("activity-list");
 const emptyState = byId("empty-state");
 const albumedOnly = byId("albumed-only");
@@ -59,11 +62,45 @@ const stateNames = {
   starting: "Starting",
   pairing: "Pairing",
   connected: "Connected",
+  reconnecting: "Reconnecting",
   stopping: "Cancelling",
   "logging-out": "Logging out",
   disconnected: "Connection lost",
   "logged-out": "Session logged out",
   "review-required": "Review required",
+};
+
+const recoveryCopy = {
+  "automatic-pairing-required":
+    "Automatic startup requested pairing. Start a session explicitly to scan a new code.",
+  "socket-termination-uncertain":
+    "Socket closure could not be confirmed. A replacement session is blocked until review.",
+  "logged-out-or-rejected":
+    "The saved account is logged out or its credentials were rejected. Start explicitly to pair again.",
+  forbidden:
+    "WhatsApp rejected the session. Review the account and saved authentication before retrying.",
+  "multidevice-mismatch":
+    "The saved session needs owner review before another connection can start.",
+  "connection-replaced":
+    "Another connection replaced this session. Review the account before starting again.",
+  "bad-session": "The saved session is invalid. Review authentication before pairing again.",
+  "unknown-disconnect": "Recovery stopped because the disconnect reason could not be classified.",
+  "registration-missing":
+    "No saved registered account was found. Start a session from this panel to pair explicitly.",
+  "saved-auth-malformed":
+    "Saved authentication is malformed. Review the local auth directory; credentials were not deleted.",
+  "saved-auth-unavailable":
+    "Saved authentication could not be read. Check service-account access; credentials were not deleted.",
+  "startup-failed":
+    "Session startup stopped for review. Check the service and saved authentication before retrying.",
+  "credential-save-failed":
+    "Saving WhatsApp credentials failed. Check storage permissions and available disk space before restarting.",
+  "recovery-exhausted":
+    "Five replacement attempts were used. Start a session to begin a fresh recovery cycle.",
+  "logout-failed":
+    "Logout did not complete. Review the session before trying to start another one.",
+  "auth-cleanup-failed":
+    "Local authentication cleanup failed. Review the auth directory before switching accounts.",
 };
 
 const validationCopy = {
@@ -95,6 +132,66 @@ function markConnectionChanged(status) {
   marker.hidden = false;
 }
 
+function renderRecovery(state) {
+  const recovery = state.recovery && typeof state.recovery === "object" ? state.recovery : {};
+  const attempt = Number.isInteger(recovery.attempt)
+    ? Math.max(0, Math.min(5, recovery.attempt))
+    : 0;
+  const maxAttempts =
+    Number.isInteger(recovery.maxAttempts) && recovery.maxAttempts > 0
+      ? Math.min(5, recovery.maxAttempts)
+      : 5;
+
+  if (state.status === "reconnecting") {
+    const timestamp =
+      typeof recovery.nextRetryAt === "string" ? Date.parse(recovery.nextRetryAt) : Number.NaN;
+    const nextRetry = Number.isFinite(timestamp)
+      ? new Intl.DateTimeFormat(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }).format(new Date(timestamp))
+      : null;
+    recoveryPanel.dataset.state = "pending";
+    recoveryHeading.textContent = "Automatic recovery scheduled";
+    recoveryMessage.textContent = nextRetry
+      ? `Attempt ${attempt} of ${maxAttempts} · next attempt around ${nextRetry}. The service continues if this dashboard closes.`
+      : `Attempt ${attempt} of ${maxAttempts} is waiting for the previous socket to close.`;
+    recoveryPanel.hidden = false;
+    return;
+  }
+
+  if (state.status === "starting" && attempt > 0) {
+    recoveryPanel.dataset.state = "pending";
+    recoveryHeading.textContent = "Automatic recovery attempt";
+    recoveryMessage.textContent = `Attempt ${attempt} of ${maxAttempts} is starting.`;
+    recoveryPanel.hidden = false;
+    return;
+  }
+
+  const reason =
+    typeof recovery.interventionReason === "string" &&
+    Object.hasOwn(recoveryCopy, recovery.interventionReason)
+      ? recovery.interventionReason
+      : null;
+  if (reason) {
+    recoveryPanel.dataset.state = reason === "registration-missing" ? "pending" : "intervention";
+    recoveryHeading.textContent =
+      reason === "recovery-exhausted"
+        ? "Automatic recovery stopped"
+        : reason === "registration-missing"
+          ? "Pairing is available"
+          : "Owner action required";
+    recoveryMessage.textContent = recoveryCopy[reason];
+    recoveryPanel.hidden = false;
+    return;
+  }
+
+  recoveryPanel.hidden = true;
+  recoveryHeading.textContent = "";
+  recoveryMessage.textContent = "";
+}
+
 function renderState(state) {
   if (!state || typeof state.status !== "string") return;
   const changed = currentStatus !== state.status;
@@ -114,6 +211,7 @@ function renderState(state) {
   sendButton.disabled = state.status !== "connected" || sending;
   pairingPanel.hidden = !state.qr || state.status !== "pairing";
   reviewPanel.hidden = state.status !== "review-required";
+  renderRecovery(state);
 
   if (state.qr && state.status === "pairing") {
     const generation = ++qrGeneration;
